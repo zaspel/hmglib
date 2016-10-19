@@ -1177,12 +1177,14 @@ void compute_batched_norms_with_keys_output(double* batched_norms, int* keys_out
 {
 		double* x_tmp;
 		cudaMalloc((void**)&x_tmp, m_total*sizeof(double));
+		checkCUDAError("cudaMalloc");
 		thrust::device_ptr<double> x_tmp_ptr(x_tmp);
 		thrust::device_ptr<int> keys_output_ptr(keys_output);
 		thrust::device_ptr<double> batched_norms_ptr(batched_norms);
 
 		// computing norms of batched vectors
 		cudaMemcpy(x_tmp, x, m_total*sizeof(double), cudaMemcpyDeviceToDevice);
+		checkCUDAError("cudaMemcpy");
 		thrust::transform(x_tmp_ptr, x_tmp_ptr+m_total, x_tmp_ptr, square());
 		thrust::pair<thrust::device_ptr<int>, thrust::device_ptr<double> > new_end;
 		new_end = thrust::reduce_by_key(work_item_map_ptr, work_item_map_ptr+m_total, x_tmp_ptr, keys_output_ptr, batched_norms_ptr, thrust::equal_to<int>(), thrust::plus<double>());
@@ -1195,6 +1197,7 @@ void compute_batched_norms_with_keys_output(double* batched_norms, int* keys_out
 
 		cudaFree(x_tmp);
 }
+
 
 void compute_batched_products_for_kxk_matrices(double* batched_products, int* products_count, double* C, double* D, int m_total, thrust::device_ptr<int> work_item_map_ptr, int block_size, bool* stop_aca_as_soon_as_possible)
 {
@@ -1488,8 +1491,6 @@ void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int
 	    //    end
 	    // end
 
-//		TIME_ssstart;
-
         // U = [U u_r];
         // V = [V; v_r];
 		v_r = &V[r*m2_total];
@@ -1504,7 +1505,7 @@ void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int
 		thrust::device_ptr<int> keys_output_ptr(keys_output);
 		thrust::device_ptr<double> v_r_norms_ptr(v_r_norms);
 
-
+		checkCUDAError("cudaMalloc");
 
 		// compute on all valid entries at the beginning
 		thrust::fill(compute_v_r_ptr, compute_v_r_ptr+mat_vec_data_count, 1);
@@ -1539,29 +1540,32 @@ void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int
 			cudaThreadSynchronize();
 			checkCUDAError("__batched_fill_kernel_vector_v_r");
 
-
 //			// computing norms of batched vectors (to check whether to increase i_r)
 			int v_r_norms_count;
 			compute_batched_norms_with_keys_output(v_r_norms, keys_output, &v_r_norms_count, v_r, m2_total, work_item_map2_ptr, block_size);
 
+
 // there are no invalid entries by construction
 //			// remove potential rubbish in invalid entries
 //			thrust::replace_if(v_r_norms_ptr, v_r_norms_ptr+output_set_counts, keys_output_ptr, is_minus_one(), 0.0);
-
+			
 			remove_rubbish_from_maxima<<<(v_r_norms_count + (block_size-1)) / block_size, block_size>>>(i_r, compute_v_r, mat_vec_data_count, keys_output, v_r_norms, v_r_norms_count);
 			cudaThreadSynchronize();
 			checkCUDAError("remove_rubbish_from_maxima");
+
 
 			// if a work_item has finished, set respective compute_v_r entry to 0
 			update_ir<<<(v_r_norms_count + (block_size-1)) / block_size, block_size>>>(i_r, compute_v_r, mat_vec_data_count, keys_output, v_r_norms, v_r_norms_count);
 			cudaThreadSynchronize();
 			checkCUDAError("update_ir");
 
+
 			int max_of_compute_v_r;
 			max_of_compute_v_r = thrust::reduce(compute_v_r_ptr, compute_v_r_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
 
 //			print_int(compute_v_r, mat_vec_data_count);
 //			printf("max: %d\n", max_of_compute_v_r);
+
 
 			if (max_of_compute_v_r == 0)
 				break;
@@ -1707,7 +1711,7 @@ void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int
 			cublasSetStream(handle, 0);
 
 //			TIME_ssstop("ACA Frobenius C,D computation");
-//
+
 //			TIME_ssstart;
 
 			double* res;
@@ -1977,31 +1981,30 @@ void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_dat
 	thrust::device_ptr<struct work_item> mat_vec_data_ptr(mat_vec_data);
 	thrust::device_ptr<struct work_item> dense_end_ptr = thrust::partition_point(mat_vec_data_ptr, mat_vec_data_ptr+mat_vec_data_count, is_not_WT_ACA());
 
-//	int work_size = 16;
-//
+	int work_size = 1000;
+
 	int dense_count = dense_end_ptr - mat_vec_data_ptr;
-////	printf("dense count: %d\n", dense_count);
+	printf("dense count: %d\n", dense_count);
 	int aca_count = mat_vec_data_count - dense_count;
-////	printf("aca_count: %d\n", aca_count);
+	printf("aca_count: %d\n", aca_count);
 //
 ////	printf("bla: %d\n",(aca_count+work_size-1)/work_size);
 //
-//	for (int i=0; i<(aca_count+work_size-1)/work_size; i++)
-//	{
-//		int offset = dense_count + i*work_size;
-//		int len;
-//		if (i<((aca_count+work_size-1)/work_size)-1)
-//			len = work_size;
-//		else
-//			len = aca_count-(((aca_count+work_size-1)/work_size)-1)*work_size;
-////		printf("offset: %d  len: %d\n", offset, len);
-//		apply_batched_aca(x, y, &mat_vec_data[offset], len, input_set1, input_set2, vector_size, stat, handle, eta, epsilon, k);
-//	}
-//
+	for (int i=0; i<(aca_count+work_size-1)/work_size; i++)
+	{
+		int offset = dense_count + i*work_size;
+		int len;
+		if (i<((aca_count+work_size-1)/work_size)-1)
+			len = work_size;
+		else
+			len = aca_count-(((aca_count+work_size-1)/work_size)-1)*work_size;
+//		printf("offset: %d  len: %d\n", offset, len);
+		apply_batched_aca(x, y, &mat_vec_data[offset], len, input_set1, input_set2, vector_size, stat, handle, eta, epsilon, k);
+	}
 
-	apply_batched_aca(x, y, &mat_vec_data[dense_count], aca_count, input_set1, input_set2, vector_size, stat, handle, eta, epsilon, k);
 
-////	apply_batched_aca(x, y, &mat_vec_data[3], 1, input_set1, input_set2, vector_size, stat, handle, eta, epsilon, k);
+//	apply_batched_aca(x, y, &mat_vec_data[dense_count], aca_count, input_set1, input_set2, vector_size, stat, handle, eta, epsilon, k);
+
 //
 
 	TIME_ssstop("batched aca");
