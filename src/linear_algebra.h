@@ -1656,7 +1656,7 @@ void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int
 
 		batched_fill_kernel_vector_and_scaled_substraction_for_u_r<<<(m1_total + (block_size-1)) / block_size, block_size>>>(u_r, point_map1, point_map2, work_item_to_batch_map, work_item_map1, k_per_item, r, j_r_global, input_set1, input_set2, m1_total, m2_total, U, V);
 		cudaThreadSynchronize();
-		checkCUDAError("__batched_fill_kernel_vector_u_r");
+		checkCUDAError("batched_fill_kernel_vector_and_scaled_substraction_for_u_r");
 
 
 		cudaFree(j_r_global);

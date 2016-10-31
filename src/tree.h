@@ -87,18 +87,23 @@ __device__ __forceinline__ int findSplit( struct morton_code *codes, int first, 
 #define BLOCK_SIZE 512
 #define WT_ACA 1
 #define WT_DENSE 2
+
+#define MAX_POINT_DIMENSION 5
+
 struct work_item
 {
-	int set1_l;
-	int set1_u;
-	int set2_l;
-	int set2_u;
-	int work_type;
-	int is_in_use;
-	double max1[5];
-	double min1[5];
-	double max2[5];
-	double min2[5];
+	int set1_l; // lower index bound of the points belonging to set 1
+		    // -> this index is the index mapping towards the point set, which is sorted by the Z order curve
+	int set1_u; // upper index bound of the points belonging to set 1
+	int set2_l; // lower index bound of the points belonging to set 2
+	int set2_u; // upper index bound of the points belonging to set 2
+	int work_type;  // work type, i.e. WT_ACA or WT_DENSE
+	int is_in_use;  // whether this work item is in use (DEBUG: is this ever used????)
+	double max1[MAX_POINT_DIMENSION]; // max part of the bounding box for set 1  (assuming an upper bound of MAX_POINT_DIMENSION dimensions)
+	double min1[MAX_POINT_DIMENSION]; // mim part of the bounding box for set 1  (assuming an upper bound of  dimensions)
+	double max2[MAX_POINT_DIMENSION]; // max part of the bounding box for set 2  (assuming an upper bound of  dimensions)
+	double min2[MAX_POINT_DIMENSION]; // mim part of the bounding box for set 2  (assuming an upper bound of  dimensions)
+
 	int dim;
 };
 
@@ -306,10 +311,10 @@ __host__ __device__ __forceinline__ bool bounding_box_admissibility(struct work_
 	int u2 = item.set2_u;
 
 	int dim = input_set1->dim;
-	double min1[5];
-	double max1[5];
-	double min2[5];
-	double max2[5];
+	double min1[MAX_POINT_DIMENSION];
+	double max1[MAX_POINT_DIMENSION];
+	double min2[MAX_POINT_DIMENSION];
+	double max2[MAX_POINT_DIMENSION];
 
 	for (int d=0; d<dim; d++)
 	{
@@ -916,10 +921,10 @@ __global__ void compute_bounding_boxes(struct work_item *current_level_data, int
 	int dim = input_set1->dim;
 	work->dim = dim;
 
-	double min1[5];
-	double max1[5];
-	double min2[5];
-	double max2[5];
+	double min1[MAX_POINT_DIMENSION];
+	double max1[MAX_POINT_DIMENSION];
+	double min2[MAX_POINT_DIMENSION];
+	double max2[MAX_POINT_DIMENSION];
 
 	for (int d=0; d<dim; d++)
 	{
@@ -1415,17 +1420,22 @@ __global__ void apply_permutation_to_map(int* map, int* tmp_map, int* permutatio
 	map[permutation[idx]] = tmp_map[idx];
 }
 
+// this method computes a map from the work item index to the bounding box computation lookup table entry
 void compute_map_for_lookup_table(int* map, struct work_item* current_level_data, int total_children, struct point_set* input_set1, struct point_set* input_set2, int set_nr)
 {
 	int block_size = 512;
 
 	thrust::device_ptr<int> map_ptr(map);
 
+	// this field will store the permutation applied by the sort command on the "l" field		
 	int* permutation;
 	cudaMalloc((void**)&permutation, total_children*sizeof(int));
 	thrust::device_ptr<int> permutation_ptr(permutation);
 	thrust::sequence(permutation_ptr, permutation_ptr+total_children);
 
+	// l, u will be vectors storing the lower and upper bounds of the indices mapping this node to actual points in
+        // the Z-order curve -- ordered point list 
+	// this will just be a linearization of the data contained in the work_item structs
 	int* l;
 	int* u;
 	cudaMalloc((void**)&l, total_children*sizeof(int));
@@ -1433,38 +1443,60 @@ void compute_map_for_lookup_table(int* map, struct work_item* current_level_data
 	thrust::device_ptr<int> l_ptr(l);
 	thrust::device_ptr<int> u_ptr(u);
 
+	// kernel to transfer the members set<set_nr>_l and set<set_nr>_u to the arrays l and u for set <set_nr>
 	get_work_item_point_set_limits<<<(total_children + (block_size - 1)) / block_size, block_size>>>(l, u, current_level_data, total_children, set_nr);
 	cudaThreadSynchronize();
 	checkCUDAError("get_work_item_point_set_limits");
 
 	cudaFree(u);  // TODO u is not really used; remove?
 
-	thrust::sort_by_key(l_ptr, l_ptr+total_children, permutation_ptr);
+	// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+	// The lookup table is only constructed base on the lower bounds of the indices,
+        // i.e. "l". This is possible due to the construction of the block cluster tree:
+        // We here only look at one of the two point sets. And each point set has the
+        // same level of refinement. Therefore, there is a unique disjoint decomposition
+        // of the set on a given level. This leads to the fact that identical entries in
+        // l will have identical entries in u (which is why it is enough to consider l".
+        // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  
 
+
+	// sort the "l" field while keeping the permuation in "permutation"
+	thrust::stable_sort_by_key(l_ptr, l_ptr+total_children, permutation_ptr);
+
+	// temporary map that will be later on re-permuted against the sorting process
 	int* tmp_map;
 	cudaMalloc((void**)&tmp_map, total_children*sizeof(int));
 	thrust::device_ptr<int> tmp_map_ptr(tmp_map);
 
+	// l:       |  5 |  7 |  7 |  8 | 20 | 20 | 35 | 35 | 40 | 40 | 40 | 40 |
+	// tmp_map: |  0 |  1 |  0 |  1 |  1 |  0 |  1 |  0 |  1 |  0 |  0 |  0 |
 	initialize_lookup_map<<<(total_children + (block_size - 1)) / block_size, block_size>>>(tmp_map, l, total_children);
 	cudaThreadSynchronize();
 	checkCUDAError("initialize_lookup_map");
 
 	cudaFree(l);
 
+	// tmp_map: |  0 |  1 |  1 |  2 |  3 |  3 |  4 |  4 |  5 |  5 |  5 |  5 |
 	thrust::inclusive_scan(tmp_map_ptr, tmp_map_ptr+total_children, tmp_map_ptr);
-
+	
+	// pemute "tmp_map" following "permuation" and store it in "map"
 	apply_permutation_to_map<<<(total_children + (block_size - 1)) / block_size, block_size>>>(map, tmp_map, permutation, total_children);
 	cudaThreadSynchronize();
 	checkCUDAError("apply_permutation_to_map");
 
+	// cleanup
 	cudaFree(tmp_map);
 	cudaFree(permutation);
 }
 
+// this function computes the lookup table for the bounding box computation results
 void compute_lookup_table(double*** lookup_table_min, double*** lookup_table_max, int* lookup_table_size, struct work_item* current_level_data, int total_children, struct point_set* input_set1, struct point_set* input_set2, int set_nr)
 {
 	int block_size = 512;
 
+	// l, u will be vectors storing the lower and upper bounds of the indices mapping this node to actual points in
+        // the Z-order curve -- ordered point list 
+	// this will just be a linearization of the data contained in the work_item structs
 	int* l;
 	int* u;
 	cudaMalloc((void**)&l, total_children*sizeof(int));
@@ -1472,19 +1504,24 @@ void compute_lookup_table(double*** lookup_table_min, double*** lookup_table_max
 	thrust::device_ptr<int> l_ptr(l);
 	thrust::device_ptr<int> u_ptr(u);
 
+	// kernel to transfer the members set<set_nr>_l and set<set_nr>_u to the arrays l and u for set <set_nr>
 	get_work_item_point_set_limits<<<(total_children + (block_size - 1)) / block_size, block_size>>>(l, u, current_level_data, total_children, set_nr);
 	cudaThreadSynchronize();
 	checkCUDAError("get_work_item_point_set_limits");
 
-	thrust::sort(l_ptr, l_ptr+total_children);
-	thrust::sort(u_ptr, u_ptr+total_children);
+	// sort l and u
+	thrust::stable_sort(l_ptr, l_ptr+total_children);
+	thrust::stable_sort(u_ptr, u_ptr+total_children);
 
+	// remove all double occurences of entries in l
 	thrust::device_ptr<int> new_end_unique = thrust::unique(l_ptr, l_ptr+total_children);
-	thrust::unique(u_ptr, u_ptr+total_children);
 
+	// the lookup table has the size of the unique lower bounds
 	*lookup_table_size = new_end_unique - l_ptr;
 
-
+	// since consecutive entries in u are identical when consecutive entries in l are identical (see big comment in the above routine)
+	// we can apply the unique operation to u without taking care about the output size, etc.
+	thrust::unique(u_ptr, u_ptr+total_children);
 
 	// very dirty way to get point count and dimensionality of points
 	int point_count,dim;
@@ -1495,6 +1532,7 @@ void compute_lookup_table(double*** lookup_table_min, double*** lookup_table_max
 	cudaMemcpy(&dim, dim_d, sizeof(int), cudaMemcpyDeviceToHost);
 	cudaFree(point_count_d); cudaFree(dim_d);
 
+	// create lookup_table of size lookup_table_size (as double arrays with either outer pointers on CPU or GPU)
 	double** lookup_table_min_h = new double*[dim];
 	double** lookup_table_max_h = new double*[dim];
 	cudaMalloc((void**)lookup_table_min, dim*sizeof(double*));
@@ -1506,151 +1544,136 @@ void compute_lookup_table(double*** lookup_table_min, double*** lookup_table_max
 	cudaMemcpy(*lookup_table_min, lookup_table_min_h, dim*sizeof(double*), cudaMemcpyHostToDevice);
 	cudaMemcpy(*lookup_table_max, lookup_table_max_h, dim*sizeof(double*), cudaMemcpyHostToDevice);
 
-//	printf("lookup_table_size: %d\n", lookup_table_size[0]);
 
-
+	// pointers in which the dimension-wise pointer to the point coordinate array per input set is stored
 	double** coords_pointer;
 	double* coords_pointer_h;
 	cudaMalloc((void**)&coords_pointer, sizeof(double*));
 
+	// array of the same size as the point array, storing a mapping of points to the actual lookup table entry to which they belong
 	int* keys;
 	cudaMalloc((void**)&keys,point_count*sizeof(int));
 	thrust::device_ptr<int> keys_ptr(keys);
 
+	// this is the output array for the "keys" for the batched min/max reduction
 	int* output_keys;
-	cudaMalloc((void**)&output_keys,point_count*sizeof(int)); // point_count is a bad upper bound
+	cudaMalloc((void**)&output_keys,point_count*sizeof(int)); // point_count is a too large upper bound
 	thrust::device_ptr<int> output_keys_ptr(output_keys);
-
-	struct min_or_m2_in_second_argument op;
 
 	thrust::pair<thrust::device_ptr<int>, thrust::device_ptr<double> > new_end;
 
-//	print_work_items(current_level_data, total_children);
+	// -------------------------------------------------------------------
+	// setting up a map of each point to the lookup table entries (unique)
+	// -------------------------------------------------------------------
 
+	// keys: | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 	set_array<<<(point_count + (block_size - 1)) / block_size, block_size>>>(keys, 0, point_count);
 	cudaThreadSynchronize();
 	checkCUDAError("set_array");
 
-//	printf("keys after set array:\n");
-//	print_int(keys,point_count);
-
-//	printf("l,u:\n");
-//	print_int(l,*lookup_table_size);
-//	print_int(u,*lookup_table_size);
-
-
+	// setting upper an lower bounds of ranges
+	// idx:    0  1  2
+	// idx+1:  1  2  3   <- Note: I am storing idx+1 as key, to be able to characterize "empty" entries as "0"
+	// l[idx]: 2  0  5      |
+	// u[idx]: 4  1  7     \|/ 
+	// idx        | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+	// keys[idx]: | 2 |-2 | 1 | 0 |-1 | 3 | 0 |-3 |
 	set_bounds_for_keys_using_limits<<<(*lookup_table_size + (block_size - 1)) / block_size, block_size>>>(keys, l, u, *lookup_table_size, set_nr);
 	cudaThreadSynchronize();
 	checkCUDAError("set_bounds_for_keys");
 
-//	printf("keys after set bounds for keys:\n");
-//	print_int(keys,point_count);
-
-
+	// filling ranges
+	// keys[idx]: | 2 | 0 | 1 | 1 | 0 | 3 | 3 | 0 |
 	thrust::inclusive_scan(keys_ptr, keys_ptr+point_count, keys_ptr);
 
-
-//	printf("keys after inclusive scan:\n");
-//	print_int(keys,point_count);
-
+	// correcting upper bounds
+	// keys[idx]: | 2 | 2 | 1 | 1 | 1 | 3 | 3 | 3 |
 	correct_upper_bound_using_limits<<<(*lookup_table_size + (block_size - 1)) / block_size, block_size>>>(keys, l, u, *lookup_table_size, set_nr);
 	cudaThreadSynchronize();
 	checkCUDAError("correct_upper_bound");
 
-//	printf("keys after correct upper bound:\n");
-//	print_int(keys,point_count);
-
-//	printf("point_count %d\n", point_count);
+	// this field will be used to store the output of the min/max reductions,
+	// i.e. this is the lookup table result for the currently computed dimension
 	double* tmp_lookup_table;
 	cudaMalloc((void**)&tmp_lookup_table, point_count*sizeof(double));
 	thrust::device_ptr<double> tmp_lookup_table_ptr(tmp_lookup_table);
 
-//	printf("Computing maximum in set %d\n", set_nr);
+	// compute coordinate maxima per dimension
 	for (int d=0; d<dim; d++)
 	{
-		get_coords_pointer<<<1,1>>>(coords_pointer, d, input_set2);
+		// get pointer to point coordinates for input set "set_nr" and dimension "d"
+		if (set_nr==1)
+			get_coords_pointer<<<1,1>>>(coords_pointer, d, input_set1);
+		else
+			get_coords_pointer<<<1,1>>>(coords_pointer, d, input_set2);
 
+		// copy pointer to host memory for a direct access
 		cudaMemcpy(&coords_pointer_h, coords_pointer, sizeof(double*), cudaMemcpyDeviceToHost);
 		checkCUDAError("cudaMemcpy11");
 		thrust::device_ptr<double> coords_current_dim_ptr(coords_pointer_h);
 
-//		printf("keys, coords_current_dim\n");
-//		print_int(keys, point_count);
-//		print_double(coords_pointer_h, point_count);
-
+		// create thrust pointer for lookup_table for current dimension
 		thrust::device_ptr<double> lookup_table_max_current_dim_ptr(lookup_table_max_h[d]);
 
+		// apply maximum reduction per coordinate subset (wrt. lookup table index)
+		// note: keys are already in contigous (non-interrupted) blocks due to the Z order curve ordering
 		new_end = thrust::reduce_by_key(keys_ptr, keys_ptr+point_count, coords_current_dim_ptr, output_keys_ptr, tmp_lookup_table_ptr, thrust::equal_to<int>(), thrust::maximum<double>());
-
 		int output_size = new_end.first - output_keys_ptr;
-//		printf("first_output_size %d\n", output_size);
 
-		// remove empty entries in lookup table
+		// remove empty entries in lookup table, which are identified by a "0" in the key
 		thrust::device_ptr<double> new_end_without_empty_entries;
 		new_end_without_empty_entries = thrust::remove_if(tmp_lookup_table_ptr, tmp_lookup_table_ptr+output_size, output_keys_ptr, equals_zero());
 		checkCUDAError("remove_if");
-
 		output_size = new_end_without_empty_entries - tmp_lookup_table_ptr;
 
-		// !!!!!!!!!!!!!!!
-		// ALLOCATION FOR LOOKUP_TABLE is TOOOO SMALLL (empty entries are neglected)
-		// !!!!!!!!!!!!!!!
+		// computed maximum is copied into the lookup table
+		// Note: ordering of lookup table entries is implicitly created; mapping via output_keys is not necessary
 
-//		printf("output_size %d\n", output_size);
-		cudaMemcpy(lookup_table_max_h[d], tmp_lookup_table, output_size*sizeof(double), cudaMemcpyHostToDevice);
+		cudaMemcpy(lookup_table_max_h[d], tmp_lookup_table, output_size*sizeof(double), cudaMemcpyDeviceToDevice);
 		checkCUDAError("cudaMemcpy12");
-
-//		printf("lookup table max for d=%d\n", d);
-//		print_double(lookup_table_max_h[d], output_size);
 
 //		set_bounding_box_minmax<<<(output_size + (block_size - 1)) / block_size, block_size>>>(minmaxs, output_keys, d, dim, output_size, current_level_data, 1);
 //		cudaThreadSynchronize();
 //		checkCUDAError("set_bounding_box_minmax");
 	}
 
-//	printf("Computing minimum in set %d\n", set_nr);
+	// compute coordinate minima per dimension
 	for (int d=0; d<dim; d++)
 	{
-		get_coords_pointer<<<1,1>>>(coords_pointer, d, input_set2);
+		// get pointer to point coordinates for input set "set_nr" and dimension "d"
+		if (set_nr==1)
+			get_coords_pointer<<<1,1>>>(coords_pointer, d, input_set1);
+		else
+			get_coords_pointer<<<1,1>>>(coords_pointer, d, input_set2);
 
+		// copy pointer to host memory for a direct access
 		cudaMemcpy(&coords_pointer_h, coords_pointer, sizeof(double*), cudaMemcpyDeviceToHost);
 		checkCUDAError("cudaMemcpy21");
 		thrust::device_ptr<double> coords_current_dim_ptr(coords_pointer_h);
 
-//		printf("keys, coords_current_dim\n");
-//		print_int(keys, point_count);
-//		print_double(coords_pointer_h, point_count);
-
+		// create thrust pointer for lookup_table for current dimension
 		thrust::device_ptr<double> lookup_table_min_current_dim_ptr(lookup_table_min_h[d]);
 
+		// apply minimum reduction per coordinate subset (wrt. lookup table index)
+		// note: keys are already in contigous (non-interrupted) blocks due to the Z order curve ordering
 		new_end = thrust::reduce_by_key(keys_ptr, keys_ptr+point_count, coords_current_dim_ptr, output_keys_ptr, tmp_lookup_table_ptr, thrust::equal_to<int>(), thrust::minimum<double>());
-
 		int output_size = new_end.first - output_keys_ptr;
 
 		// remove empty entries in lookup table
 		thrust::device_ptr<double> new_end_without_empty_entries;
 		new_end_without_empty_entries = thrust::remove_if(tmp_lookup_table_ptr, tmp_lookup_table_ptr+output_size, output_keys_ptr, equals_zero());
-
 		output_size = new_end_without_empty_entries - tmp_lookup_table_ptr;
 
-		cudaMemcpy(lookup_table_min_h[d], tmp_lookup_table, output_size*sizeof(double), cudaMemcpyHostToDevice);
+		// computed minimum is copied into the lookup table
+		// Note: ordering of lookup table entries is implicitly created; mapping via output_keys is not necessary
+		cudaMemcpy(lookup_table_min_h[d], tmp_lookup_table, output_size*sizeof(double), cudaMemcpyDeviceToDevice);
 		checkCUDAError("cudaMemcpy22");
-
-//		printf("lookup table min for d=%d\n", d);
-//		print_double(lookup_table_min_h[d], output_size);
-
-//		printf("min for d=%d\n", d);
-//		print_double(minmaxs, output_size);
-
-//		set_bounding_box_minmax<<<(output_size + (block_size - 1)) / block_size, block_size>>>(minmaxs, output_keys, d, dim, output_size, current_level_data, 3);
-//		cudaThreadSynchronize();
-//		checkCUDAError("set_bounding_box_minmax");
-
 	}
 
 	cudaFree(tmp_lookup_table);
 }
 
+// for each child node this kernel looks up the bounding box (min & max / dimension) in the lookup table (via map "map")
 __global__ void set_bounding_box_minmax_using_lookup_table(double** lookup_table_min, double** lookup_table_max, int* map, int dim, struct work_item* current_level_data, int total_children, int type)
 {
 	int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1658,10 +1681,13 @@ __global__ void set_bounding_box_minmax_using_lookup_table(double** lookup_table
 	if (idx >= total_children)
 		return;
 
+	// get mapping from child node index to lookup table index
 	int map_index = map[idx];
 
+	// take the node
 	struct work_item* work = &current_level_data[idx];
 
+	// set the lookup table value for either the first point set in the node or for the second one
 	if (type==1)
 	{
 		for (int d=0; d<dim; d++)
@@ -1679,10 +1705,13 @@ __global__ void set_bounding_box_minmax_using_lookup_table(double** lookup_table
 		}
 	}
 
+	// set dimension
 	work->dim = dim;
 }
 
 
+// this method computes the bounding boxes for each work_item in current_level_data (i.e. for each node on the current
+// tree level and sets the boxes as parameters in each work_item / node
 void compute_bounding_boxes_fun(struct work_item* current_level_data, int total_children, struct point_set* input_set1, struct point_set* input_set2)
 {
 	// very dirty way to get point count and dimensionality of points
@@ -1694,26 +1723,37 @@ void compute_bounding_boxes_fun(struct work_item* current_level_data, int total_
 	cudaMemcpy(&dim, dim_d, sizeof(int), cudaMemcpyDeviceToHost);
 	cudaFree(point_count_d); cudaFree(dim_d);
 
+	// this field will hold the mapping of the node / work_item indices to the lookup table
 	int* map;
 	cudaMalloc((void**)&map, total_children*sizeof(double));
 
+	// these fields will hold the lookup tables for the bounding boxes (min & max)
 	double** lookup_table_min;
 	double** lookup_table_max;
 	int lookup_table_size;
 
-//	printf("WORKING ON SET 1...\n");
-
-	compute_map_for_lookup_table(map, current_level_data, total_children, input_set1, input_set2, 1);
-
-	compute_lookup_table(&lookup_table_min, &lookup_table_max, &lookup_table_size, current_level_data, total_children, input_set1, input_set2, 1);
-
 
 	int block_size = 512;
-//	printf("bla %d %d\n",(total_children + (block_size - 1)) / block_size, block_size);
+
+
+	// ---------------------------------------------------------------------------
+	// compute the bounding box for the first set in each node
+	// ---------------------------------------------------------------------------
+
+
+
+	// given the current_level_data, i.e. the nodes on this level, compute the mapping from the node indices to the lookup table entries
+	compute_map_for_lookup_table(map, current_level_data, total_children, input_set1, input_set2, 1);
+
+	// now compute the lookup table
+	compute_lookup_table(&lookup_table_min, &lookup_table_max, &lookup_table_size, current_level_data, total_children, input_set1, input_set2, 1);
+
+	// finally use the lookup table to assign the computed bounding boxes to the nodes	
 	set_bounding_box_minmax_using_lookup_table<<<(total_children + (block_size - 1)) / block_size, block_size>>>(lookup_table_min, lookup_table_max, map, dim, current_level_data, total_children, 1);
 	cudaThreadSynchronize();
 	checkCUDAError("set_bounding_box_minmax_using_lookup_table");
 
+	// cleaning up the lookup tables which were generated in "compute_lookup_table"
 	double** tmp_array = new double*[dim];
 	cudaMemcpy(tmp_array, lookup_table_min, dim*sizeof(double*), cudaMemcpyDeviceToHost);
 	checkCUDAError("cudaMemcpy1");
@@ -1730,21 +1770,22 @@ void compute_bounding_boxes_fun(struct work_item* current_level_data, int total_
 		checkCUDAError("cudaFree2");
 	}
 
-//	printf("WORKING ON SET 2...\n");
+	// ---------------------------------------------------------------------------
+	// compute the bounding box for the first set in each node
+	// ---------------------------------------------------------------------------
 
+	// given the current_level_data, i.e. the nodes on this level, compute the mapping from the node indices to the lookup table entries
 	compute_map_for_lookup_table(map, current_level_data, total_children, input_set1, input_set2, 2);
 
+	// now compute the lookup table
 	compute_lookup_table(&lookup_table_min, &lookup_table_max, &lookup_table_size, current_level_data, total_children, input_set1, input_set2, 2);
 
-
-//	printf("bla %d %d\n",(total_children + (block_size - 1)) / block_size, block_size);
+	// finally use the lookup table to assign the computed bounding boxes to the nodes	
 	set_bounding_box_minmax_using_lookup_table<<<(total_children + (block_size - 1)) / block_size, block_size>>>(lookup_table_min, lookup_table_max, map, dim, current_level_data, total_children, 2);
 	cudaThreadSynchronize();
 	checkCUDAError("set_bounding_box_minmax_using_lookup_table");
 
-
-
-
+	// cleaning up the lookup tables which were generated in "compute_lookup_table"
 	cudaMemcpy(tmp_array, lookup_table_min, dim*sizeof(double*), cudaMemcpyDeviceToHost);
 	checkCUDAError("cudaMemcpy1");
 	for (int d=0; d<dim; d++)
@@ -1760,6 +1801,7 @@ void compute_bounding_boxes_fun(struct work_item* current_level_data, int total_
 		checkCUDAError("cudaFree2");
 	}
 
+	
 	delete[] tmp_array;
 
 }
