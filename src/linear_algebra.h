@@ -1335,7 +1335,9 @@ void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int
 
 	struct divide_by div;
 
+	// ------------------------------------------------------
 	// create mapping of work_items to offset in batched data
+	// ------------------------------------------------------
 	int* point_map_offsets1;
 	int* point_map_offsets2;
 	cudaMalloc((void**)&point_map_offsets1, mat_vec_data_count*sizeof(int));
@@ -1372,6 +1374,9 @@ void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int
 	// 0  0  2  3  4  0  0  5  6  7  8  9  2  3  4  5  0
 	correct_bounds_for_point_maps<<<(mat_vec_data_count + (block_size - 1)) / block_size, block_size>>>(point_map1, point_map2, point_map_offsets1, point_map_offsets2, m1, m2, WT_ACA, mat_vec_data, mat_vec_data_count);
 
+	// --------------------------------------------------------------
+	// compute mapping of rows in batched data to index in work_queue	
+	// --------------------------------------------------------------
 	int* work_item_map1; // map of rows of U to work item indices in mat_vec_data
 	int* work_item_map2; // map of rows of V to work item indices in mat_vec_data
 	cudaMalloc((void**)&work_item_map1, m1_total*sizeof(int));
@@ -1388,7 +1393,7 @@ void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int
 
 	// set bounds for the back mapping of rows to work_items
 	// 0  0  2  0 -2  0  0  3  0  0  0 -3  1  0  0 -1  0
-	set_bounds_for_work_item_maps<<<(mat_vec_data_count + (block_size - 1)) / block_size, block_size>>>(work_item_map1, work_item_map2, point_map_offsets1, point_map_offsets2, m1, m2, WT_ACA, mat_vec_data, mat_vec_data_count);
+	set_bounds_for_work_item_maps<<<(mat_vec_data_count + (block_size - 1)) / block_size, block_size>>>(work_item_map1, work_item_map2, point_map_offsets1, point_map_offsets2, m1, m2, WT_ACA, mat_vec_data, mat_vec_data_count); // TODO: Do I need m1, m2 here? Should be implicitely available by point_map_offsets
 
 	// fill gaps
 	// 0  0  2  2  0  0  0  3  3  3  3  0  1  1  1  0  0
