@@ -597,9 +597,12 @@ int main( int argc, char* argv[])
 	double epsilon;
 	epsilon = pow(10.0, atoi(argv[4]));
 
+	mat_vec_data_info mat_vec_info;
+	organize_mat_vec_data(*mat_vec_data, mat_vec_data_count, &mat_vec_info);
+
 	printf("dort\n");
 	TIME_start;
-	sequential_h_matrix_mvp(x, y, *mat_vec_data, mat_vec_data_count, mat_vec_data_array_size, points_d, points_d, point_count, eta, epsilon, k);
+	sequential_h_matrix_mvp(x, y, *mat_vec_data, &mat_vec_info, points_d, points_d, point_count, eta, epsilon, k);
 	TIME_stop("sequential_h_matrix");
 
 	thrust::device_ptr<double> y_ptr(y);
