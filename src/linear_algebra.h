@@ -78,7 +78,7 @@ void sort_mat_vec_data(struct work_item* mat_vec_data, int mat_vec_data_count)
 
 __host__ __device__ double kernel(double val)
 {
-	return (1.0 + val) * exp(-val);
+	return exp(-val*val);
 }
 
 __global__ void fill_matrix(double* matrix, struct work_item current_mat_vec_data, struct point_set* input_set1, struct point_set* input_set2, int m1, int m2)
