@@ -26,6 +26,64 @@
 #include <thrust/inner_product.h>
 #include "helper.h"
 
+struct hmatrix_data
+{
+	// point coordinates in dim dimensions
+	double** coords;
+	
+	// extremal values per dimension
+	double* max_per_dim_d;
+	double* min_per_dim_d;
+
+	// device pointer for dimension-wise access
+	double** coords_device;
+
+	// morton codes
+	uint64_t* code_d;
+
+	// point set
+	struct point_set* points_d;
+
+	// morton code
+	struct morton_code* morton_d;
+
+	// order of points following Z curve
+	uint64_t* order;
+
+};
+
+void init_hmatrix_data(struct hmatrix_data* data, int point_count, int dim, int bits)
+{
+	// allocating memory for point_count coordinates in dim dimensions
+	data->coords_d = new double*[dim];
+	for (int d = 0; d < dim; d++)
+	{
+		cudaMalloc((void**)&(data->coords_d[d]), point_count*sizeof(double));
+		checkCUDAError("cudaMalloc");
+	}
+
+	// allocating memory for extremal values per dimension
+	cudaMalloc((void**)&(data->max_per_dim_d), dim*sizeof(double));
+	cudaMalloc((void**)&(data->min_per_dim_d), dim*sizeof(double));
+
+	// generating device pointer that holds the dimension-wise access
+	cudaMalloc((void**)&(data->coords_device), dim*sizeof(double*));
+	cudaMemcpy(data->coords_device, data->coords_d, dim*sizeof(double*), cudaMemcpyHostToDevice);
+	
+	// allocationg memory for morton codes
+	cudaMalloc((void**)&(data->code_d), point_count*sizeof(uint64_t));
+	checkCUDAError("cudaMalloc");
+
+	// setting up data strcture for point set
+	cudaMalloc((void**)&(data->points_d), sizeof(struct point_set));
+	init_point_set<<<1,1>>>(data->points_d, data->coords_device, dim, data->max_per_dim_d, data->min_per_dim_d, point_count);
+
+	// setting up data structure for morton code
+	cudaMalloc((void**)&(data->morton_d), sizeof(struct morton_code));
+	init_morton_code<<<1,1>>>(data->morton_d, data->code_d, dim, bits, point_count);
+}
+
+
 
 int main( int argc, char* argv[])
 {
@@ -47,40 +105,10 @@ int main( int argc, char* argv[])
 		return 0;
 	}
 
-	// allocating memory for point_count coordinates in dim dimensions
-	double** coords_d;
-	coords_d = new double*[dim];
-	for (int d = 0; d < dim; d++)
-	{
-		cudaMalloc((void**)&(coords_d[d]), point_count*sizeof(double));
-		checkCUDAError("cudaMalloc");
-	}
+	struct hmatrix_data data;
 
-	// allocating memory for extremal values per dimension
-	double* max_per_dim_d;
-	cudaMalloc((void**)&max_per_dim_d, dim*sizeof(double));
-	double* min_per_dim_d;
-	cudaMalloc((void**)&min_per_dim_d, dim*sizeof(double));
+	init_hmatrix_data(&data, point_count, dim);
 
-	// generating device pointer that holds the dimension-wise access
-	double** coords_device;
-	cudaMalloc((void**)&(coords_device), dim*sizeof(double*));
-	cudaMemcpy(coords_device, coords_d, dim*sizeof(double*), cudaMemcpyHostToDevice);
-	
-	// allocationg memory for morton codes
-	uint64_t* code_d;
-	cudaMalloc((void**)&code_d, point_count*sizeof(uint64_t));
-	checkCUDAError("cudaMalloc");
-
-	// setting up data strcture for point set
-	struct point_set* points_d;
-	cudaMalloc((void**)&points_d, sizeof(struct point_set));
-	init_point_set<<<1,1>>>(points_d, coords_device, dim, max_per_dim_d, min_per_dim_d, point_count);
-
-	// setting up data structure for morton code
-	struct morton_code* morton_d;
-	cudaMalloc((void**)&morton_d, sizeof(struct morton_code));
-	init_morton_code<<<1,1>>>(morton_d, code_d, dim, bits, point_count);
 
 
 	// generate random points
@@ -88,20 +116,17 @@ int main( int argc, char* argv[])
 	curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
 	for (int d = 0; d < dim; d++ )
 	{
-		curandGenerateUniformDouble(gen, coords_d[d], point_count);
+		curandGenerateUniformDouble(gen, data->coords_d[d], point_count);
 	}
 	curandDestroyGenerator(gen);
 
+//	set_2d_test_set<<<1,16>>>(data->points_d);
 
-
-//	set_2d_test_set<<<1,16>>>(points_d);
-
-//	set_3d_test_set<<<1,64>>>(points_d);
-
+//	set_3d_test_set<<<1,64>>>(data->points_d);
 
 
 	// compute extremal values for the point set
-	compute_minmax(points_d);
+	compute_minmax(data->points_d);
 	
 	// calculate GPU thread configuration	
 	int block_size = 512;
@@ -111,23 +136,22 @@ int main( int argc, char* argv[])
 
 	// generate morton codes
 	TIME_start;
-	get_morton_code<<<grid_size, block_size>>>(points_d, morton_d);
+	get_morton_code<<<grid_size, block_size>>>(data->points_d, data->morton_d);
 	TIME_stop("get_morton_3d");
 	checkCUDAError("get_morton_code");
 
-//	print_points_with_morton_codes(points_d, morton_d);
+//	print_points_with_morton_codes(data->points_d, data->morton_d);
 
 
 	// find ordering of points following Z curve
-	uint64_t* order;
-	cudaMalloc((void**)&order, point_count*sizeof(uint64_t));
-	get_morton_ordering(points_d, morton_d, order);
+	cudaMalloc((void**)&(data->order), point_count*sizeof(uint64_t));
+	get_morton_ordering(data->points_d, data->morton_d, data->order);
 
-//	print_points_with_morton_codes(points_d, morton_d);
+//	print_points_with_morton_codes(data->points_d, data->morton_d);
 
 	// reorder points following the morton code order
 //	TIME_start;
-	reorder_point_set(points_d, order);
+	reorder_point_set(data->points_d, data->order);
 //	TIME_stop("reorder_point_set");
 
 //	double eta=10.0;
