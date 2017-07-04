@@ -1527,7 +1527,10 @@ void compute_lookup_table(double*** lookup_table_min, double*** lookup_table_max
 	int point_count,dim;
 	int* point_count_d; cudaMalloc((void**)&point_count_d, sizeof(int));
 	int* dim_d; cudaMalloc((void**)&dim_d, sizeof(int));
-	get_point_count_dim<<<1,1>>>(point_count_d, dim_d, input_set1);
+	if (set_nr==1)
+		get_point_count_dim<<<1,1>>>(point_count_d, dim_d, input_set1);
+	else
+		get_point_count_dim<<<1,1>>>(point_count_d, dim_d, input_set2);
 	cudaMemcpy(&point_count, point_count_d, sizeof(int), cudaMemcpyDeviceToHost);
 	cudaMemcpy(&dim, dim_d, sizeof(int), cudaMemcpyDeviceToHost);
 	cudaFree(point_count_d); cudaFree(dim_d);

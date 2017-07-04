@@ -94,8 +94,8 @@ __global__ void fill_matrix(double* matrix, struct work_item current_mat_vec_dat
 	i = idx % m1;
 
 	int dim = input_set1->dim;
-	double point1[5];
-	double point2[5];
+	double point1[MAX_DIM];
+	double point2[MAX_DIM];
 
 	for (int d=0; d<dim; d++)
 	{
@@ -121,8 +121,8 @@ __global__ void fill_kernel_vector(double* vec, int lA, int uA, int iB, struct p
 		return;
 
 	int dim = input_setA->dim;
-	double pointA[5];
-	double pointB[5];
+	double pointA[MAX_DIM];
+	double pointB[MAX_DIM];
 
 	for (int d=0; d<dim; d++)
 	{
@@ -235,8 +235,8 @@ __global__ void fill_kernel_vector_and_substract_previous_vectors(double* vec, i
 		return;
 
 	int dim = input_setA->dim;
-	double pointA[5];
-	double pointB[5];
+	double pointA[MAX_DIM];
+	double pointB[MAX_DIM];
 
 	for (int d=0; d<dim; d++)
 	{
@@ -637,8 +637,8 @@ __global__ void batched_fill_kernel_vector_v_r(double* v_r, int* point_map2, int
 		return;
 
 	int dim = input_set2->dim;
-	double point2[5];
-	double point1[5];
+	double point2[MAX_DIM];
+	double point1[MAX_DIM];
 
 	int global_point_index2 = point_map2[idx];
 
@@ -777,8 +777,8 @@ __global__ void batched_fill_kernel_vector_and_scaled_substraction_for_v_r(doubl
 		return;
 
 	int dim = input_set2->dim;
-	double point2[5];
-	double point1[5];
+	double point2[MAX_DIM];
+	double point1[MAX_DIM];
 
 	int global_point_index2 = point_map2[idx];
 
@@ -895,8 +895,8 @@ __global__ void batched_fill_kernel_vector_u_r(double* u_r, int* point_map1, int
 		return;
 
 	int dim = input_set1->dim;
-	double point1[5];
-	double point2[5];
+	double point1[MAX_DIM];
+	double point2[MAX_DIM];
 
 	int global_point_index1 = point_map1[idx];
 
@@ -979,8 +979,8 @@ __global__ void batched_fill_kernel_vector_and_scaled_substraction_for_u_r(doubl
 		return;
 
 	int dim = input_set1->dim;
-	double point1[5];
-	double point2[5];
+	double point1[MAX_DIM];
+	double point2[MAX_DIM];
 
 	int global_point_index1 = point_map1[idx];
 

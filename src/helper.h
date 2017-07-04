@@ -244,6 +244,25 @@ void write_points(struct point_set* points_d, char* file_name)
 
 }
 
+void write_vector(double* x, int n, char* file_name)
+{	
+	double* x_h = new double[n];
+	cudaMemcpy(x_h, x, sizeof(double*)*n, cudaMemcpyDeviceToHost);
+	
+	FILE* f = fopen(file_name,"w");	
+
+	for (int p=0; p<n; p++)
+	{
+			fprintf(f,"%le\n", x_h[p]);
+	}
+	
+	fclose(f);
+
+	delete [] x_h;
+}
+
+
+
 
 
 __global__ void set_2d_test_set(struct point_set* points)
