@@ -173,7 +173,7 @@ struct compare_absolute
 	}
 };
 
-void apply_dense_matrix_for_current_work_item(double* x, double* y, struct work_item current_mat_vec_data, struct point_set* input_set1, struct point_set* input_set2, int vector_size, cublasStatus_t stat, cublasHandle_t handle)
+void apply_dense_matrix_for_current_work_item(double* x, double* y, struct work_item current_mat_vec_data, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle)
 {
 	int block_size = 512;
 
@@ -304,7 +304,7 @@ double compute_frobenius_norm_of_low_rank_matrix(double* U, double* V, int m1, i
 }
 
 
-void apply_aca_for_current_work_item(double* x, double* y, struct work_item current_mat_vec_data, struct point_set* input_set1, struct point_set* input_set2, int vector_size, cublasStatus_t stat, cublasHandle_t handle, double eta, double epsilon, int k)
+void apply_aca_for_current_work_item(double* x, double* y, struct work_item current_mat_vec_data, struct point_set* input_set1, struct point_set* input_set2,  cublasStatus_t stat, cublasHandle_t handle, double eta, double epsilon, int k)
 {
 	int block_size = 512;
 
@@ -1841,7 +1841,7 @@ void compute_current_batched_u_r(double* u_r, double* v_r, double* U, double* V,
 }
 
 
-void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, int vector_size, cublasStatus_t stat, cublasHandle_t handle, double eta, double epsilon, int k)
+void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, double eta, double epsilon, int k)
 {
 	int block_size = 512;
 
@@ -2114,7 +2114,7 @@ void organize_mat_vec_data(struct work_item* mat_vec_data, int mat_vec_data_coun
 
 
 
-void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, int vector_size, double eta, double epsilon, int k)
+void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k)
 {
     cublasStatus_t stat;
     cublasHandle_t handle;
@@ -2125,15 +2125,15 @@ void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_dat
 	// set output vector to zero
 
 		// very dirty way to get point count and dimensionality of points
-		int point_count,dim;
-		int* point_count_d; cudaMalloc((void**)&point_count_d, sizeof(int));
+		int point_count_1,dim;
+		int* point_count_1_d; cudaMalloc((void**)&point_count_1_d, sizeof(int));
 		int* dim_d; cudaMalloc((void**)&dim_d, sizeof(int));
-		get_point_count_dim<<<1,1>>>(point_count_d, dim_d, input_set1);
-		cudaMemcpy(&point_count, point_count_d, sizeof(int), cudaMemcpyDeviceToHost);
+		get_point_count_dim<<<1,1>>>(point_count_1_d, dim_d, input_set1);
+		cudaMemcpy(&point_count_1, point_count_1_d, sizeof(int), cudaMemcpyDeviceToHost);
 		cudaMemcpy(&dim, dim_d, sizeof(int), cudaMemcpyDeviceToHost);
-		cudaFree(point_count_d); cudaFree(dim_d);
+		cudaFree(point_count_1_d); cudaFree(dim_d);
 		thrust::device_ptr<double> y_ptr(y);
-		thrust::fill(y_ptr, y_ptr+point_count, 0.0);
+		thrust::fill(y_ptr, y_ptr+point_count_1, 0.0);
 
 
 //	printf("y_before\n");
@@ -2150,11 +2150,11 @@ void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_dat
 		// handling of dense blocks
 		if (current_mat_vec_data.work_type==WT_DENSE)
 		{
-			apply_dense_matrix_for_current_work_item(x, y, current_mat_vec_data, input_set1, input_set2, vector_size, stat, handle);
+			apply_dense_matrix_for_current_work_item(x, y, current_mat_vec_data, input_set1, input_set2, stat, handle);
 		}  // handling of low rank blocks
 /*		else if (current_mat_vec_data.work_type==WT_ACA)
 		{
-			apply_aca_for_current_work_item(x, y, current_mat_vec_data, input_set1, input_set2, vector_size, stat, handle, k);
+			apply_aca_for_current_work_item(x, y, current_mat_vec_data, input_set1, input_set2, stat, handle, k);
 		}
 		else
 		{
@@ -2182,11 +2182,11 @@ void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_dat
 		else
 			len = mat_vec_info->aca_count-(((mat_vec_info->aca_count+work_size-1)/work_size)-1)*work_size;
 //		printf("offset: %d  len: %d\n", offset, len);
-		apply_batched_aca(x, y, &mat_vec_data[offset], len, input_set1, input_set2, vector_size, stat, handle, eta, epsilon, k);
+		apply_batched_aca(x, y, &mat_vec_data[offset], len, input_set1, input_set2, stat, handle, eta, epsilon, k);
 	}
 
 
-//	apply_batched_aca(x, y, &mat_vec_data[mat_vec_info->dense_count], mat_vec_info->aca_count, input_set1, input_set2, vector_size, stat, handle, eta, epsilon, k);
+//	apply_batched_aca(x, y, &mat_vec_data[mat_vec_info->dense_count], mat_vec_info->aca_count, input_set1, input_set2, stat, handle, eta, epsilon, k);
 
 //
 
@@ -2214,13 +2214,13 @@ void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_dat
 ///*		// handling of dense blocks
 //		if (current_mat_vec_data.work_type==WT_DENSE)
 //		{
-//			apply_dense_matrix_for_current_work_item(x, y, current_mat_vec_data, input_set1, input_set2, vector_size, stat, handle);
+//			apply_dense_matrix_for_current_work_item(x, y, current_mat_vec_data, input_set1, input_set2, stat, handle);
 //		}  // handling of low rank blocks
 //		else */ if (current_mat_vec_data.work_type==WT_ACA)
 //		{
 ////			printf("ACA: %d %d\n", current_mat_vec_data.set1_u-current_mat_vec_data.set1_l, current_mat_vec_data.set2_u-current_mat_vec_data.set2_l);
 ////			TIME_ssstart;
-//			apply_aca_for_current_work_item(x, y, current_mat_vec_data, input_set1, input_set2, vector_size, stat, handle, eta, epsilon, k);
+//			apply_aca_for_current_work_item(x, y, current_mat_vec_data, input_set1, input_set2, stat, handle, eta, epsilon, k);
 ////			TIME_ssstop("aca first block");
 ////			break;
 //		}/*

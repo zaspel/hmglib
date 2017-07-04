@@ -77,6 +77,19 @@ __global__ void reorder_by_index(double* output, double* input, uint64_t* indice
 	return;
 }
 
+__global__ void reorder_back_by_index(double* output, double* input, uint64_t* indices, int count)
+{
+	int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (idx>=count) return;
+
+	uint64_t ind = indices[idx];
+
+	output[ind] = input[idx];
+
+	return;
+}
+
 __global__ void init_point_set(struct point_set* points, double** coords_device, int dim, double* max_per_dim, double* min_per_dim, int size)
 {
 	int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -293,6 +306,45 @@ void reorder_point_set(struct point_set* points_d, uint64_t* order)
 	
 	cudaFree(coords_tmp);
 }
+
+void reorder_vector(double* vector, int vector_length, uint64_t* order)
+{
+	double* vector_tmp;
+	cudaMalloc((void**)&vector_tmp, vector_length*sizeof(double));
+
+	// calculate GPU thread configuration	
+	int block_size = 512;
+	int grid_size = (vector_length + (block_size - 1)) / block_size;
+
+
+	TIME_start
+		reorder_by_index<<<grid_size, block_size>>>(vector_tmp, vector, order, vector_length);
+		cudaMemcpy(vector, vector_tmp, vector_length*sizeof(double), cudaMemcpyDeviceToDevice);	
+	TIME_stop("reorder vector");
+	
+	cudaFree(vector_tmp);
+}
+
+void reorder_back_vector(double* vector, int vector_length, uint64_t* order)
+{
+	double* vector_tmp;
+	cudaMalloc((void**)&vector_tmp, vector_length*sizeof(double));
+
+	// calculate GPU thread configuration	
+	int block_size = 512;
+	int grid_size = (vector_length + (block_size - 1)) / block_size;
+
+	TIME_start
+		reorder_back_by_index<<<grid_size, block_size>>>(vector_tmp, vector, order, vector_length);
+		cudaMemcpy(vector, vector_tmp, vector_length*sizeof(double), cudaMemcpyDeviceToDevice);	
+	TIME_stop("reorder vector");
+	
+	cudaFree(vector_tmp);
+}
+
+
+
+
 
 
 void print_points_with_morton_codes(struct point_set* points_d, struct morton_code* code_d)

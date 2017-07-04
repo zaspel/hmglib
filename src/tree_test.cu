@@ -26,117 +26,105 @@
 #include <thrust/inner_product.h>
 #include "helper.h"
 
-struct hmatrix_data
+struct h_matrix_data
 {
 	// point coordinates in dim dimensions
-	double** coords;
+	double** coords_d[2];
 	
 	// extremal values per dimension
-	double* max_per_dim_d;
-	double* min_per_dim_d;
+	double* max_per_dim_d[2];
+	double* min_per_dim_d[2];
 
 	// device pointer for dimension-wise access
-	double** coords_device;
+	double** coords_device[2];
 
 	// morton codes
-	uint64_t* code_d;
+	uint64_t* code_d[2];
 
 	// point set
-	struct point_set* points_d;
+	struct point_set* points_d[2];
 
 	// morton code
-	struct morton_code* morton_d;
+	struct morton_code* morton_d[2];
 
 	// order of points following Z curve
-	uint64_t* order;
+	uint64_t* order[2];
 
+	int dim;
+
+	double eta;
+
+	int max_level;
+
+	int c_leaf;
+
+	int mat_vec_data_count;
+
+        int max_elements_in_array; 
+        int max_elements_in_mat_vec_data_array;
+
+        struct work_item** mat_vec_data;
+        int mat_vec_data_array_size;
+
+	int k;
+
+	double epsilon;
+
+	mat_vec_data_info mat_vec_info;
+
+	int point_count[2];
 };
 
-void init_hmatrix_data(struct hmatrix_data* data, int point_count, int dim, int bits)
+void init_h_matrix_data(struct h_matrix_data* data, int point_count[2], int dim, int bits)
 {
-	// allocating memory for point_count coordinates in dim dimensions
-	data->coords_d = new double*[dim];
-	for (int d = 0; d < dim; d++)
+	for (int i=0; i<2; i++)
 	{
-		cudaMalloc((void**)&(data->coords_d[d]), point_count*sizeof(double));
-		checkCUDAError("cudaMalloc");
-	}
-
-	// allocating memory for extremal values per dimension
-	cudaMalloc((void**)&(data->max_per_dim_d), dim*sizeof(double));
-	cudaMalloc((void**)&(data->min_per_dim_d), dim*sizeof(double));
-
-	// generating device pointer that holds the dimension-wise access
-	cudaMalloc((void**)&(data->coords_device), dim*sizeof(double*));
-	cudaMemcpy(data->coords_device, data->coords_d, dim*sizeof(double*), cudaMemcpyHostToDevice);
+		// allocating memory for point_count coordinates in dim dimensions
+		data->coords_d[i] = new double*[dim];
+		for (int d = 0; d < dim; d++)
+		{
+			cudaMalloc((void**)&(data->coords_d[i][d]), point_count[i]*sizeof(double));
+			checkCUDAError("cudaMalloc");
+			}
 	
-	// allocationg memory for morton codes
-	cudaMalloc((void**)&(data->code_d), point_count*sizeof(uint64_t));
-	checkCUDAError("cudaMalloc");
-
-	// setting up data strcture for point set
-	cudaMalloc((void**)&(data->points_d), sizeof(struct point_set));
-	init_point_set<<<1,1>>>(data->points_d, data->coords_device, dim, data->max_per_dim_d, data->min_per_dim_d, point_count);
-
-	// setting up data structure for morton code
-	cudaMalloc((void**)&(data->morton_d), sizeof(struct morton_code));
-	init_morton_code<<<1,1>>>(data->morton_d, data->code_d, dim, bits, point_count);
+		// allocating memory for extremal values per dimension
+		cudaMalloc((void**)&(data->max_per_dim_d[i]), dim*sizeof(double));
+		cudaMalloc((void**)&(data->min_per_dim_d[i]), dim*sizeof(double));
+	
+		// generating device pointer that holds the dimension-wise access
+		cudaMalloc((void**)&(data->coords_device[i]), dim*sizeof(double*));
+		cudaMemcpy(data->coords_device[i], data->coords_d[i], dim*sizeof(double*), cudaMemcpyHostToDevice);
+	
+		// allocationg memory for morton codes
+		cudaMalloc((void**)&(data->code_d[i]), point_count[i]*sizeof(uint64_t));
+		checkCUDAError("cudaMalloc");
+	
+		// setting up data strcture for point set
+		cudaMalloc((void**)&(data->points_d[i]), sizeof(struct point_set));
+		init_point_set<<<1,1>>>(data->points_d[i], data->coords_device[i], dim, data->max_per_dim_d[i], data->min_per_dim_d[i], point_count[i]);
+	
+		// setting up data structure for morton code
+		cudaMalloc((void**)&(data->morton_d[i]), sizeof(struct morton_code));
+		init_morton_code<<<1,1>>>(data->morton_d[i], data->code_d[i], dim, bits, point_count[i]);
+	}
 }
 
-
-
-int main( int argc, char* argv[])
+void setup_h_matrix(struct h_matrix_data* data)
 {
-
-//	int dim = 3;
-//	int bits = 20;
-	int dim = 2;
-	int bits = 32;
-
-//	int point_count=16;
-//	int point_count=20;
-	int point_count = atoi(argv[1]);
-//	int point_count=4000000;
-//	int point_count=29000000;
-
-	if (argc!=6)
-	{
-		printf("./tree_test <N> <k> <c_leaf> <exponent of epsilon> <eta>\n");
-		return 0;
-	}
-
-	struct hmatrix_data data;
-
-	init_hmatrix_data(&data, point_count, dim);
-
-
-
-	// generate random points
-	curandGenerator_t gen;
-	curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
-	for (int d = 0; d < dim; d++ )
-	{
-		curandGenerateUniformDouble(gen, data->coords_d[d], point_count);
-	}
-	curandDestroyGenerator(gen);
-
-//	set_2d_test_set<<<1,16>>>(data->points_d);
-
-//	set_3d_test_set<<<1,64>>>(data->points_d);
-
-
 	// compute extremal values for the point set
-	compute_minmax(data->points_d);
+	compute_minmax(data->points_d[0]);
+	compute_minmax(data->points_d[1]);
 	
 	// calculate GPU thread configuration	
 	int block_size = 512;
-	int grid_size = (point_count + (block_size - 1)) / block_size;
+	int grid_size = (max(data->point_count[0],data->point_count[1]) + (block_size - 1)) / block_size;
 
-
+	printf("gs %d\n",grid_size);
 
 	// generate morton codes
 	TIME_start;
-	get_morton_code<<<grid_size, block_size>>>(data->points_d, data->morton_d);
+	get_morton_code<<<grid_size, block_size>>>(data->points_d[0], data->morton_d[0]);
+	get_morton_code<<<grid_size, block_size>>>(data->points_d[1], data->morton_d[1]);
 	TIME_stop("get_morton_3d");
 	checkCUDAError("get_morton_code");
 
@@ -144,31 +132,26 @@ int main( int argc, char* argv[])
 
 
 	// find ordering of points following Z curve
-	cudaMalloc((void**)&(data->order), point_count*sizeof(uint64_t));
-	get_morton_ordering(data->points_d, data->morton_d, data->order);
+	cudaMalloc((void**)&(data->order[0]), data->point_count[0]*sizeof(uint64_t));
+	cudaMalloc((void**)&(data->order[1]), data->point_count[1]*sizeof(uint64_t));
+	get_morton_ordering(data->points_d[0], data->morton_d[0], data->order[0]);
+	get_morton_ordering(data->points_d[1], data->morton_d[1], data->order[1]);
 
 //	print_points_with_morton_codes(data->points_d, data->morton_d);
 
 	// reorder points following the morton code order
 //	TIME_start;
-	reorder_point_set(data->points_d, data->order);
+	reorder_point_set(data->points_d[0], data->order[0]);
+	reorder_point_set(data->points_d[1], data->order[1]);
 //	TIME_stop("reorder_point_set");
-
-//	double eta=10.0;
-//	double eta=0.5;
-	double eta=atof(argv[5]);
-	int max_level=50; // DEBUG
-//	int c_leaf=1024;
-	int c_leaf=atoi(argv[3]);
-//	int c_leaf=4;
 
 	struct work_item root_h;
 	root_h.set1_l = 0;
-	root_h.set1_u = point_count - 1;
+	root_h.set1_u = data->point_count[0] - 1;
 	root_h.set2_l = 0;
-	root_h.set2_u = point_count - 1;
+	root_h.set2_u = data->point_count[1] - 1;
 
-	int mat_vec_data_count = 0;  // will be filled with the size number of mat_vec_data entries
+	data->mat_vec_data_count = 0;  // will be filled with the size number of mat_vec_data entries
 
 /*
 	int max_elements_in_array = -1; // TODO
@@ -188,15 +171,15 @@ int main( int argc, char* argv[])
 */
 
 
-	int max_elements_in_array = -1; // TODO
-	int max_elements_in_mat_vec_data_array = -1; // TODO
+	data->max_elements_in_array = -1; // TODO
+	data->max_elements_in_mat_vec_data_array = -1; // TODO
 
-	struct work_item** mat_vec_data = new struct work_item*[1];
-	int mat_vec_data_array_size = 1048576;
-	cudaMalloc((void**)mat_vec_data, mat_vec_data_array_size*sizeof(struct work_item));
+	data->mat_vec_data = new struct work_item*[1];
+	data->mat_vec_data_array_size = 1048576;
+	cudaMalloc((void**)data->mat_vec_data, data->mat_vec_data_array_size*sizeof(struct work_item));
 
 	TIME_start;
-	traverse_with_dynamic_arrays_dynamic_output(root_h, mat_vec_data, &mat_vec_data_count, &mat_vec_data_array_size, morton_d, morton_d, points_d, points_d, eta, max_level, c_leaf, max_elements_in_array);
+	traverse_with_dynamic_arrays_dynamic_output(root_h, data->mat_vec_data, &(data->mat_vec_data_count), &(data->mat_vec_data_array_size), data->morton_d[0], data->morton_d[1], data->points_d[0], data->points_d[1], data->eta, data->max_level, data->c_leaf, data->max_elements_in_array);
 	TIME_stop("traverse_with_arrays");
 
 //	printf("mat_vec_data_count: %d\n", mat_vec_data_count);
@@ -205,63 +188,170 @@ int main( int argc, char* argv[])
 //	sprintf(file_name, "mat_vec_data.txt");
 //	write_work_items(file_name, *mat_vec_data, mat_vec_data_count);
 
+	organize_mat_vec_data(*(data->mat_vec_data), data->mat_vec_data_count, &(data->mat_vec_info));
+
+
+
+}
+
+void apply_h_matrix_mvp(double* x, double* y, struct h_matrix_data* data)
+{
+	reorder_vector(x, data->point_count[1], data->order[1]);	
+
+	printf("dort\n");
+	TIME_start;
+	sequential_h_matrix_mvp(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k);
+	TIME_stop("sequential_h_matrix");
+
+	reorder_back_vector(x, data->point_count[1], data->order[1]);
+	reorder_back_vector(y, data->point_count[0], data->order[0]);
+}
+
+
+void destroy_h_matrix_data(struct h_matrix_data* data)
+{
+
+	cudaFree(*(data->mat_vec_data));
+
+	for (int i=0; i<2; i++)
+	{
+		cudaFree(data->order[i]);
+	
+		// freeing memory for morton codes
+		cudaFree(data->code_d[i]);
+	
+		// freeing coordinates memory
+		for (int d = 0; d < data->dim; d++)
+		{
+			cudaFree(data->coords_d[i][d]);
+		}
+		delete [] data->coords_d[i];
+	}
+}
+
+
+
+int main( int argc, char* argv[])
+{
+
+//	int dim = 3;
+//	int bits = 20;
+	int dim = 2;
+	int bits = 32;
+
+	int point_count[2];
+	point_count[0] = atoi(argv[1]);
+	point_count[1] = atoi(argv[2]);
+
+//	int point_count=16;
+//	int point_count=20;
+//	int point_count = atoi(argv[1]);
+//	int point_count=4000000;
+//	int point_count=29000000;
+
+	if (argc!=7)
+	{
+		printf("./tree_test <Nx> <Ny> <k> <c_leaf> <exponent of epsilon> <eta>\n");
+		return 0;
+	}
+
+	struct h_matrix_data data;
+
+
+	init_h_matrix_data(&data, point_count, dim, bits);
+
+//	data.eta=10.0;
+//	data.eta=0.5;
+	data.eta=atof(argv[6]);
+	data.max_level=50; // DEBUG
+//	data.c_leaf=1024;
+	data.c_leaf=atoi(argv[4]);
+//	data.c_leaf=4;
+
+	data.dim = dim;
+	data.point_count[0] = point_count[0];
+	data.point_count[1] = point_count[1];
+
+	data.k = atoi(argv[3]);
+	data.epsilon = pow(10.0, atoi(argv[5]));
+
+
+
+
+	// generate random points
+	curandGenerator_t gen;
+	curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
+	for (int d = 0; d < dim; d++ )
+	{
+		curandGenerateUniformDouble(gen, data.coords_d[0][d], point_count[0]);
+		curandGenerateUniformDouble(gen, data.coords_d[1][d], point_count[1]);
+//		cudaMemcpy(data.coords_d[1][d], data.coords_d[0][d], point_count[0]*sizeof(double), cudaMemcpyDeviceToDevice);
+	}
+	curandDestroyGenerator(gen);
+
+//	set_2d_test_set<<<1,16>>>(data->points_d);
+
+//	set_3d_test_set<<<1,64>>>(data->points_d);
+
+
+
+	setup_h_matrix(&data);
+
 	double* x;
 	double* y;
 	double* y_test;
-	cudaMalloc((void**)&x, point_count*sizeof(double));
-	cudaMalloc((void**)&y, point_count*sizeof(double));
-	cudaMalloc((void**)&y_test, point_count*sizeof(double));
+	cudaMalloc((void**)&x, point_count[1]*sizeof(double));
+	cudaMalloc((void**)&y, point_count[0]*sizeof(double));
+	cudaMalloc((void**)&y_test, point_count[0]*sizeof(double));
 
 	// generate random vector x
 	curandGenerator_t vec_gen;
 	curandCreateGenerator(&vec_gen, CURAND_RNG_PSEUDO_DEFAULT);
-	curandGenerateUniformDouble(vec_gen, x, point_count);
+	curandGenerateUniformDouble(vec_gen, x, point_count[1]);
 	curandDestroyGenerator(vec_gen);
 
-//	TIME_start;
-//	struct work_item test_mat_vec_data;
-//	test_mat_vec_data.set1_l = 0;
-//	test_mat_vec_data.set1_u = point_count - 1;
-//	test_mat_vec_data.set2_l = 0;
-//	test_mat_vec_data.set2_u = point_count - 1;
-//	double* test_matrix;
-//	cudaMalloc((void**)&test_matrix, point_count*point_count*sizeof(double));
-//	checkCUDAError("cudaMalloc");
-//	int block_size1 = 512;
-//	fill_matrix<<<(point_count*point_count + (block_size1 - 1)) / block_size1, block_size1>>>(test_matrix, test_mat_vec_data, points_d, points_d, point_count, point_count);
-//	cudaThreadSynchronize();
-//	checkCUDAError("fill_matrix");
-//    cublasStatus_t stat;
-//    cublasHandle_t handle;
-//    stat = cublasCreate(&handle);
-//	// matrix-vector-product
-//	double one;
-//	double zero;
-//	one = 1.0;
-//	zero = 0.0;
-//	stat = cublasDgemv(handle, CUBLAS_OP_N, point_count, point_count, &one, test_matrix, point_count, x, 1, &zero, y_test, 1);
-//	if (stat!=CUBLAS_STATUS_SUCCESS)
-//	{
-//		printf("dgemv did not succeed...\n");
-//		exit(1);
-//	}
-//    cublasDestroy(handle);
-//    TIME_stop("dense_mvp");
-//
-//    cudaFree(test_matrix);
-
-	int k = atoi(argv[2]);
-
-	double epsilon;
-	epsilon = pow(10.0, atoi(argv[4]));
-
-	mat_vec_data_info mat_vec_info;
-	organize_mat_vec_data(*mat_vec_data, mat_vec_data_count, &mat_vec_info);
-
-	printf("dort\n");
 	TIME_start;
-	sequential_h_matrix_mvp(x, y, *mat_vec_data, &mat_vec_info, points_d, points_d, point_count, eta, epsilon, k);
-	TIME_stop("sequential_h_matrix");
+	struct work_item test_mat_vec_data;
+	test_mat_vec_data.set1_l = 0;
+	test_mat_vec_data.set1_u = point_count[0] - 1;
+	test_mat_vec_data.set2_l = 0;
+	test_mat_vec_data.set2_u = point_count[1] - 1;
+	double* test_matrix;
+	cudaMalloc((void**)&test_matrix, point_count[0]*point_count[1]*sizeof(double));
+	checkCUDAError("cudaMalloc");
+	int block_size1 = 512;
+	fill_matrix<<<(point_count[0]*point_count[1] + (block_size1 - 1)) / block_size1, block_size1>>>(test_matrix, test_mat_vec_data, data.points_d[0], data.points_d[1], point_count[0], point_count[1]);
+	cudaThreadSynchronize();
+	checkCUDAError("fill_matrix");
+    cublasStatus_t stat;
+    cublasHandle_t handle;
+    stat = cublasCreate(&handle);
+
+	reorder_vector(x,point_count[1],data.order[1]);
+
+	// matrix-vector-product
+	double one;
+	double zero;
+	one = 1.0;
+	zero = 0.0;
+	stat = cublasDgemv(handle, CUBLAS_OP_N, point_count[0], point_count[1], &one, test_matrix, point_count[0], x, 1, &zero, y_test, 1);
+	if (stat!=CUBLAS_STATUS_SUCCESS)
+	{
+		printf("dgemv did not succeed...\n");
+		exit(1);
+	}
+    cublasDestroy(handle);
+    TIME_stop("dense_mvp");
+
+	reorder_back_vector(x,point_count[1],data.order[1]);
+	reorder_back_vector(y_test,point_count[0],data.order[0]);
+
+
+    cudaFree(test_matrix);
+
+	
+	apply_h_matrix_mvp(x, y, &data);
+
 
 	thrust::device_ptr<double> y_ptr(y);
 	thrust::device_ptr<double> y_test_ptr(y_test);
@@ -271,8 +361,12 @@ int main( int argc, char* argv[])
 //	print_double(y, point_count);
 //	print_double(y_test, point_count);
 
-	thrust::transform(y_test_ptr, y_test_ptr+point_count, y_ptr, y_test_ptr, thrust::minus<double>());
-	double error = sqrt(thrust::inner_product(y_test_ptr, y_test_ptr+point_count, y_test_ptr, 0.0));
+	
+	double y_test_norm = sqrt(thrust::inner_product(y_test_ptr, y_test_ptr+point_count[0], y_test_ptr, 0.0));
+	thrust::transform(y_test_ptr, y_test_ptr+point_count[0], y_ptr, y_test_ptr, thrust::minus<double>());
+	double abs_error = sqrt(thrust::inner_product(y_test_ptr, y_test_ptr+point_count[0], y_test_ptr, 0.0));
+	
+	double error = abs_error/y_test_norm;	
 
 	printf("Error: %le\n", error);
 //
@@ -281,7 +375,6 @@ int main( int argc, char* argv[])
 	cudaFree(x);
 	cudaFree(y);
 
-	cudaFree(*mat_vec_data);
 
 
 
@@ -369,16 +462,7 @@ int main( int argc, char* argv[])
 //	write_points(points_d,file_name);
 	
 
-	cudaFree(order);
+	destroy_h_matrix_data(&data);
 
-	// freeing memory for morton codes
-	cudaFree(code_d);
-
-	// freeing coordinates memory
-	for (int d = 0; d < dim; d++)
-	{
-		cudaFree(coords_d[d]);
-	}
-	delete [] coords_d;
 
 }
