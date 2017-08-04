@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <curand.h>
 #include <thrust/inner_product.h>
+#include <thrust/fill.h>
 #include "hmglib.h"
 
 int main( int argc, char* argv[])
@@ -80,6 +81,14 @@ int main( int argc, char* argv[])
 	cudaMalloc((void**)&x, point_count[1]*sizeof(double));
 	cudaMalloc((void**)&y, point_count[0]*sizeof(double));
 	cudaMalloc((void**)&y_test, point_count[0]*sizeof(double));
+	
+	// get thrust device_ptr
+	thrust::device_ptr<double> y_ptr(y);
+	thrust::device_ptr<double> y_test_ptr(y_test);
+
+	thrust::fill(y_ptr, y_ptr+point_count[0], 0.0);
+	thrust::fill(y_test_ptr, y_test_ptr+point_count[0], 0.0);
+
 
 	// generate random vector x
 	curandGenerator_t vec_gen;
@@ -87,16 +96,15 @@ int main( int argc, char* argv[])
 	curandGenerateUniformDouble(vec_gen, x, point_count[1]);
 	curandDestroyGenerator(vec_gen);
 
+	// precomputation of ACA
+	precompute_aca(&data);
+
 	// apply full mvp for testing puposes
 	apply_full_mvp(x, y_test, &data);
 
 	// apply H matrix to same vector
 	apply_h_matrix_mvp(x, y, &data);
-
-	// get thrust device_ptr
-	thrust::device_ptr<double> y_ptr(y);
-	thrust::device_ptr<double> y_test_ptr(y_test);
-
+	
 	// compute and print relative error of H matrix approximation (wrt. mvp)	
 	double y_test_norm = sqrt(thrust::inner_product(y_test_ptr, y_test_ptr+point_count[0], y_test_ptr, 0.0));
 	thrust::transform(y_test_ptr, y_test_ptr+point_count[0], y_ptr, y_test_ptr, thrust::minus<double>());

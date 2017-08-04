@@ -89,6 +89,10 @@ struct mat_vec_data_info
 
 extern void organize_mat_vec_data(struct work_item* mat_vec_data, int mat_vec_data_count, struct mat_vec_data_info* mat_vec_info);
 
+extern void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* U, double* V);
+
+extern void precompute_aca_for_h_matrix_mvp(struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double** U, double** V);
+
 extern void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k);
 
 #endif /* LINEAR_ALGEBRA_H_ */
