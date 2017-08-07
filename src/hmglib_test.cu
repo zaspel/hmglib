@@ -97,7 +97,7 @@ int main( int argc, char* argv[])
 	curandDestroyGenerator(vec_gen);
 
 	// precomputation of ACA
-//	precompute_aca(&data);
+	precompute_aca(&data);
 
 	// apply full mvp for testing puposes
 //	apply_full_mvp(x, y_test, &data);

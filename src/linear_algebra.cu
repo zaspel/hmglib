@@ -2716,7 +2716,7 @@ void precompute_batched_aca(struct work_item* mat_vec_data, int mat_vec_data_cou
 	cudaMalloc((void**)&m2, mat_vec_data_count*sizeof(int));
 	thrust::device_ptr<int> m1_ptr(m1);
 	thrust::device_ptr<int> m2_ptr(m2);
-	compute_m1_m2(m1, m2, mat_vec_data, mat_vec_data_count, WT_DENSE);
+	compute_m1_m2(m1, m2, mat_vec_data, mat_vec_data_count, WT_ACA);
 	int m1_total;
 	int m2_total;
 	m1_total = thrust::reduce(m1_ptr, m1_ptr+mat_vec_data_count);
@@ -3032,7 +3032,7 @@ void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct w
 
 	TIME_ssstart;
 
-
+/*
 	for (int i=0; i<mat_vec_info->total_count; i++)
 	{
 		// get current work item to handle
@@ -3044,8 +3044,8 @@ void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct w
 			apply_dense_matrix_for_current_work_item(x, y, current_mat_vec_data, input_set1, input_set2, stat, handle);
 		}
 	}
+*/
 
-/*
         int dense_work_size = 30;
 
         for (int i=0; i<(mat_vec_info->dense_count+dense_work_size-1)/dense_work_size; i++)
@@ -3061,7 +3061,7 @@ void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct w
 
                 apply_batched_dense(x, y, &mat_vec_data[offset], len, input_set1, input_set2, stat, handle);
         }
-*/
+
 
 	TIME_ssstop("dense blocks");
 
