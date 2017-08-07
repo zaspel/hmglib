@@ -97,14 +97,14 @@ int main( int argc, char* argv[])
 	curandDestroyGenerator(vec_gen);
 
 	// precomputation of ACA
-	precompute_aca(&data);
+//	precompute_aca(&data);
 
 	// apply full mvp for testing puposes
-	apply_full_mvp(x, y_test, &data);
+//	apply_full_mvp(x, y_test, &data);
 
 	// apply H matrix to same vector
 	apply_h_matrix_mvp(x, y, &data);
-	
+
 	// compute and print relative error of H matrix approximation (wrt. mvp)	
 	double y_test_norm = sqrt(thrust::inner_product(y_test_ptr, y_test_ptr+point_count[0], y_test_ptr, 0.0));
 	thrust::transform(y_test_ptr, y_test_ptr+point_count[0], y_ptr, y_test_ptr, thrust::minus<double>());
