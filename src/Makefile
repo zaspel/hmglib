@@ -17,10 +17,16 @@
 
 CFLAGS = -O3 -arch=sm_35 -g -Xcompiler -fPIC
 
-all: hmglib_test
+all: hmglib_test paper_convergence_test paper_batching_benchmark
 
 hmglib_test: hmglib_test.cu libhmglib.so
 	nvcc $(CFLAGS) -L. -lhmglib -lcurand -lcublas hmglib_test.cu -o hmglib_test
+
+paper_convergence_test: paper_convergence_test.cu libhmglib.so
+	nvcc $(CFLAGS) $(GSL_LIB) -L. -lhmglib -lcurand -lcublas paper_convergence_test.cu -o paper_convergence_test
+
+paper_batching_benchmark: paper_batching_benchmark.cu libhmglib.so
+	nvcc $(CFLAGS) $(GSL_LIB) -L. -lhmglib -lcurand -lcublas paper_batching_benchmark.cu -o paper_batching_benchmark
 
 morton.o: morton.cu morton.h
 	nvcc $(CFLAGS) -c morton.cu -o morton.o

@@ -1,0 +1,28 @@
+#!/bin/bash
+#PBS -A csc238
+#PBS -N paper_convergence_test
+#PBS -j oe
+#PBS -l walltime=00:20:00
+#PBS -l nodes=1
+
+
+module swap PrgEnv-pgi PrgEnv-gnu
+module load cudatoolkit 
+module load gsl
+export MPICH_RDMA_ENABLED_CUDA=1
+export LD_LIBRARY_PATH=/opt/gcc/4.9.3/snos/lib64:/lib:/lustre/atlas/proj-shared/csc238/MPLA/src:/lustre/atlas/proj-shared/csc238/hmglib/src:$GSL_DIR/lib
+
+cd /lustre/atlas/proj-shared/csc238/hmglib/src
+
+for KERNEL in 1 2
+do
+	for DIM in 2 3
+	do
+		for i in 1 2 4 8 16 32
+		do
+			RESULT=`aprun -n 1 -N 1 ./paper_convergence_test $[2**$PBS_ARRAYID] $[2**$PBS_ARRAYID] $i 256 -1 1.0 $KERNEL $DIM | grep Averaged | cut -d' ' -f9`
+			echo $i $RESULT >> convergence_$[2**$PBS_ARRAYID]_dim_${DIM}_kernel_${KERNEL}.dat
+		done
+	done
+done
+

@@ -59,6 +59,8 @@ int main( int argc, char* argv[])
 	// set threshold for ACA (currently not use)
 	data.epsilon = pow(10.0, atoi(argv[5]));
 
+	// set kernel
+	data.kernel_type = KT_GAUSSIAN;
 
 	// generate random points for testing purpose
 	curandGenerator_t gen;
@@ -100,7 +102,7 @@ int main( int argc, char* argv[])
 	precompute_aca(&data);
 
 	// apply full mvp for testing puposes
-//	apply_full_mvp(x, y_test, &data);
+	apply_full_mvp(x, y_test, &data);
 
 	// apply H matrix to same vector
 	apply_h_matrix_mvp(x, y, &data);

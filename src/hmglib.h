@@ -73,6 +73,9 @@ struct h_matrix_data
 
 	int point_count[2];
 
+	int kernel_type;
+
+
 	double* U;
 	double* V;
 };
@@ -82,6 +85,8 @@ extern void init_h_matrix_data(struct h_matrix_data* data, int point_count[2], i
 extern void setup_h_matrix(struct h_matrix_data* data);
 
 extern void apply_h_matrix_mvp(double* x, double* y, struct h_matrix_data* data);
+
+extern void apply_h_matrix_mvp_without_batching(double* x, double* y, struct h_matrix_data* data);
 
 extern void destroy_h_matrix_data(struct h_matrix_data* data);
 
