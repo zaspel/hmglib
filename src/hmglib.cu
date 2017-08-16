@@ -210,7 +210,7 @@ void apply_h_matrix_mvp(double* x, double* y, struct h_matrix_data* data)
 }
 	else // if ACA has been precomputed, use it
 	{
-		sequential_h_matrix_mvp_using_precomputation(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->U, data->V, data->kernel_type);
+		sequential_h_matrix_mvp_using_precomputation(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->U, data->V, data->kernel_type, data->max_batched_dense_size);
 	}
 
 	reorder_back_vector(x, data->point_count[1], data->order[1]);

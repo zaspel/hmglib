@@ -107,6 +107,10 @@ int main( int argc, char* argv[])
 	// set kernel
 	data.kernel_type = atoi(argv[7]);
 
+        // set batching sizes
+        data.max_batched_dense_size = 8192;
+        data.max_batched_aca_size = 65536;
+
 	// generate Halton sequence points (on CPU due to missing CURAND support for Halton sequences)
 	double** coords_1_h = new double*[dim];
 	double** coords_2_h = new double*[dim];

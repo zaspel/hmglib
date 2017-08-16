@@ -107,6 +107,7 @@ int main( int argc, char* argv[])
 	// set kernel
 	data.kernel_type = atoi(argv[7]);
 
+	// set batching sizes
 	data.max_batched_dense_size = 8192;
 	data.max_batched_aca_size = 65536;
 
@@ -127,7 +128,7 @@ int main( int argc, char* argv[])
 	setup_h_matrix(&data);
 
 	// precomputation of ACA
-//	precompute_aca(&data);
+	precompute_aca(&data);
 
 	// allocate vectors for H matrix vs. full matrix test
 	double* x;

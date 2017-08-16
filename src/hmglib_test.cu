@@ -62,6 +62,10 @@ int main( int argc, char* argv[])
 	// set kernel
 	data.kernel_type = KT_GAUSSIAN;
 
+        // set batching sizes
+        data.max_batched_dense_size = 8192;
+        data.max_batched_aca_size = 65536;
+
 	// generate random points for testing purpose
 	curandGenerator_t gen;
 	curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
@@ -75,6 +79,9 @@ int main( int argc, char* argv[])
 
 	// run setup of H matrix
 	setup_h_matrix(&data);
+
+	// precomputation of ACA
+	precompute_aca(&data);
 
 	// allocate vectors for H matrix vs. full matrix test
 	double* x;
@@ -97,9 +104,6 @@ int main( int argc, char* argv[])
 	curandCreateGenerator(&vec_gen, CURAND_RNG_PSEUDO_DEFAULT);
 	curandGenerateUniformDouble(vec_gen, x, point_count[1]);
 	curandDestroyGenerator(vec_gen);
-
-	// precomputation of ACA
-	precompute_aca(&data);
 
 	// apply full mvp for testing puposes
 	apply_full_mvp(x, y_test, &data);

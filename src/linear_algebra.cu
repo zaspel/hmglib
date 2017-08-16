@@ -3041,7 +3041,7 @@ __global__ void linear_algebra_get_point_count_dim(int* point_count, int* dim, s
         *dim = input_set1->dim;
 }
 
-void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* U, double* V, int kernel_type)
+void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* U, double* V, int kernel_type, int max_batched_dense_size)
 {
     cublasStatus_t stat;
     cublasHandle_t handle;
@@ -3064,44 +3064,27 @@ void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct w
 	thrust::fill(y_ptr, y_ptr+point_count_1, 0.0);
 
 
-//	printf("y_before\n");
-//	print_double(y, vector_size);
-//
+        struct work_item* mat_vec_data_h = new struct work_item[mat_vec_info->dense_count+mat_vec_info->aca_count];
+        
+        cudaMemcpy(mat_vec_data_h, mat_vec_data, (mat_vec_info->dense_count+mat_vec_info->aca_count)*sizeof(struct work_item), cudaMemcpyDeviceToHost);
 
-	TIME_ssstart;
+        TIME_ssstart;
+        int current_dense_work_size;
+        int current_dense_work_item_index = 0;
 
-/*
-	for (int i=0; i<mat_vec_info->total_count; i++)
-	{
-		// get current work item to handle
-		cudaMemcpy(&current_mat_vec_data, &mat_vec_data[i], sizeof(struct work_item), cudaMemcpyDeviceToHost);
+        current_dense_work_size = compute_current_dense_work_size(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
 
-		// handling of dense blocks
-		if (current_mat_vec_data.work_type==WT_DENSE)
-		{
-			apply_dense_matrix_for_current_work_item(x, y, current_mat_vec_data, input_set1, input_set2, stat, handle);
-		}
-	}
-*/
-
-        int dense_work_size = 30;
-
-        for (int i=0; i<(mat_vec_info->dense_count+dense_work_size-1)/dense_work_size; i++)
+        while (current_dense_work_size > 0)
         {
-                int offset = i*dense_work_size;
-                int len;
-                if (i<((mat_vec_info->dense_count+dense_work_size-1)/dense_work_size)-1)
-                        len = dense_work_size;
-                else
-                        len = mat_vec_info->dense_count-(((mat_vec_info->dense_count+dense_work_size-1)/dense_work_size)-1)*dense_work_size;
+                apply_batched_dense(x, y, &mat_vec_data[current_dense_work_item_index], current_dense_work_size, input_set1, input_set2, stat, handle, kernel_type);
 
-//                    printf("offset: %d  len: %d\n", offset, len);
+                current_dense_work_item_index += current_dense_work_size;       
 
-                apply_batched_dense(x, y, &mat_vec_data[offset], len, input_set1, input_set2, stat, handle, kernel_type);
+                current_dense_work_size = compute_current_dense_work_size(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
         }
 
+        TIME_ssstop("dense blocks");
 
-	TIME_ssstop("dense blocks");
 
 	TIME_ssstart;
 
@@ -3176,8 +3159,6 @@ void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_dat
     cublasStatus_t stat;
     cublasHandle_t handle;
     stat = cublasCreate(&handle);
-
-//	struct work_item current_mat_vec_data;
 
 	// set output vector to zero
 
