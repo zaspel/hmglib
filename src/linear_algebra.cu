@@ -100,7 +100,7 @@ __device__ double kernel(double* p1, double* p2, int dim, int kernel_type)
 }
 
 
-__global__ void fill_batched_matrix(double* matrix, struct work_item* mat_vec_data, struct point_set* input_set1, struct point_set* input_set2, int* m1, int* m2, int m1_total, int* point_map1, int* work_item_map1, int* point_map_offset1, int m2_max, int kernel_type )
+__global__ void fill_batched_matrix(double* matrix, struct work_item* mat_vec_data, struct point_set* input_set1, struct point_set* input_set2, int* m1, int* m2, int m1_total, int* point_map1, int* work_item_map1, int* point_map_offset1, int* point_map_offset2, int m2_max, int kernel_type )
 {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -119,7 +119,7 @@ __global__ void fill_batched_matrix(double* matrix, struct work_item* mat_vec_da
 
         if (column_in_batched_matrix>=m2[work_item_index])
 	{
-		matrix[idx] = 0.0;
+//		matrix[idx] = 0.0;
                 return;
 	}
 
@@ -143,8 +143,9 @@ __global__ void fill_batched_matrix(double* matrix, struct work_item* mat_vec_da
         val = sqrt(val);
 */
 
+
 	// computing index for output in block_diagonal_matrix
-	int full_idx = (m2_max*work_item_index+column_in_batched_matrix)*m1_total + row_in_batched_matrix;
+	int full_idx = (point_map_offset2[work_item_index]+column_in_batched_matrix)*m1_total + row_in_batched_matrix;
 
         matrix[full_idx] = kernel(point1, point2, dim, kernel_type);
 
@@ -2433,31 +2434,31 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 	int m2_max = thrust::reduce(m2_ptr, m2_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
 
 	
-	// --------------------------------------
-	// compute lookup table to gether local x
-	// --------------------------------------
-	int* point_map_with_padding;
-	cudaMalloc((void**)&point_map_with_padding, m2_max*mat_vec_data_count*sizeof(int));
-
-	int* pattern_with_padding;
-	cudaMalloc((void**)&pattern_with_padding, m2_max*mat_vec_data_count*sizeof(int));
-
-	thrust::device_ptr<int> point_map_with_padding_ptr(point_map_with_padding);
-	thrust::device_ptr<int> pattern_with_padding_ptr(pattern_with_padding);
-
-	compute_point_map_and_pattern_with_padding(point_map_with_padding, pattern_with_padding, m2_total, m2, point_map_offsets2, m2_max, mat_vec_data, mat_vec_data_count);
+//	// --------------------------------------
+//	// compute lookup table to gether local x
+//	// --------------------------------------
+//	int* point_map_with_padding;
+//	cudaMalloc((void**)&point_map_with_padding, m2_max*mat_vec_data_count*sizeof(int));
+//
+//	int* pattern_with_padding;
+//	cudaMalloc((void**)&pattern_with_padding, m2_max*mat_vec_data_count*sizeof(int));
+//
+//	thrust::device_ptr<int> point_map_with_padding_ptr(point_map_with_padding);
+//	thrust::device_ptr<int> pattern_with_padding_ptr(pattern_with_padding);
+//
+//	compute_point_map_and_pattern_with_padding(point_map_with_padding, pattern_with_padding, m2_total, m2, point_map_offsets2, m2_max, mat_vec_data, mat_vec_data_count);
 
 
 	//------------------------------------------
 	// allocate and init batched dense subblocks
 	//------------------------------------------
 	double* S;
-	cudaMalloc((void**)&S, (m1_total*m2_max*mat_vec_data_count)*sizeof(double));  
+	cudaMalloc((void**)&S, (m1_total*m2_total)*sizeof(double));  
 	checkCUDAError("cudaMalloc");
 
 	thrust::device_ptr<double> S_ptr(S);
 
-	thrust::fill(S_ptr, S_ptr+m1_total*m2_max*mat_vec_data_count, 0.0);
+	thrust::fill(S_ptr, S_ptr+m1_total*m2_total, 0.0);
 
 	//-------------------------------------------
 	// fill batched dense subblocks
@@ -2466,7 +2467,7 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 //	printf("m1_total %d  m2_max %d\n", m1_total, m2_max);
 
 //	printf("fill_batched_matrix %d %d\n",(m1_total*m2_max + (block_size - 1)) / block_size, block_size);
-	fill_batched_matrix<<<(m1_total*m2_max + (block_size - 1)) / block_size, block_size>>>(S, mat_vec_data, input_set1, input_set2, m1, m2, m1_total, point_map1, work_item_map1, point_map_offsets1, m2_max, kernel_type );
+	fill_batched_matrix<<<(m1_total*m2_max + (block_size - 1)) / block_size, block_size>>>(S, mat_vec_data, input_set1, input_set2, m1, m2, m1_total, point_map1, work_item_map1, point_map_offsets1, point_map_offsets2, m2_max, kernel_type );
 	cudaThreadSynchronize();
 	checkCUDAError("fill_batched_matrix");
 	
@@ -2479,7 +2480,7 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 
 	// allocation of local x (including padding)
         double* local_x;
-        cudaMalloc((void**)&local_x, m2_max*mat_vec_data_count*sizeof(double));
+        cudaMalloc((void**)&local_x, m2_total*sizeof(double));
         checkCUDAError("cudaMalloc");
 
 	// getting pointers
@@ -2488,7 +2489,7 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 
 	thrust::fill(local_x_ptr, local_x_ptr+m2_max*mat_vec_data_count, 0.0);
 
-        thrust::gather_if(point_map_with_padding_ptr, point_map_with_padding_ptr+m2_max*mat_vec_data_count, pattern_with_padding_ptr, x_ptr, local_x_ptr);
+        thrust::gather(point_map2_ptr, point_map2_ptr+m2_total, x_ptr, local_x_ptr);
 
 
         // allocation of batched local results
@@ -2502,7 +2503,7 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
         one = 1.0;
         zero = 0.0;
 
-	cublasDgemv(handle, CUBLAS_OP_N, m1_total, m2_max*mat_vec_data_count, &one, S, m1_total, local_x, 1, &zero, local_y, 1);
+	cublasDgemv(handle, CUBLAS_OP_N, m1_total, m2_total, &one, S, m1_total, local_x, 1, &zero, local_y, 1);
 
 
         thrust::device_ptr<double> local_y_ptr(local_y);
@@ -2517,8 +2518,8 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
         cudaFree(local_x);
         cudaFree(local_y);
 
-	cudaFree(point_map_with_padding);
-	cudaFree(pattern_with_padding);
+//	cudaFree(point_map_with_padding);
+//	cudaFree(pattern_with_padding);
 
 
 	//-------------------------------------------------
@@ -3046,7 +3047,7 @@ void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct w
     cublasHandle_t handle;
     stat = cublasCreate(&handle);
 
-	struct work_item current_mat_vec_data;
+//	struct work_item current_mat_vec_data;
 
 	// set output vector to zero
 
@@ -3058,8 +3059,9 @@ void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct w
 		cudaMemcpy(&point_count_1, point_count_1_d, sizeof(int), cudaMemcpyDeviceToHost);
 		cudaMemcpy(&dim, dim_d, sizeof(int), cudaMemcpyDeviceToHost);
 		cudaFree(point_count_1_d); cudaFree(dim_d);
-		thrust::device_ptr<double> y_ptr(y);
-		thrust::fill(y_ptr, y_ptr+point_count_1, 0.0);
+
+	thrust::device_ptr<double> y_ptr(y);
+	thrust::fill(y_ptr, y_ptr+point_count_1, 0.0);
 
 
 //	printf("y_before\n");
@@ -3175,7 +3177,7 @@ void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_dat
     cublasHandle_t handle;
     stat = cublasCreate(&handle);
 
-	struct work_item current_mat_vec_data;
+//	struct work_item current_mat_vec_data;
 
 	// set output vector to zero
 
@@ -3187,8 +3189,9 @@ void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_dat
 		cudaMemcpy(&point_count_1, point_count_1_d, sizeof(int), cudaMemcpyDeviceToHost);
 		cudaMemcpy(&dim, dim_d, sizeof(int), cudaMemcpyDeviceToHost);
 		cudaFree(point_count_1_d); cudaFree(dim_d);
-		thrust::device_ptr<double> y_ptr(y);
-		thrust::fill(y_ptr, y_ptr+point_count_1, 0.0);
+
+	thrust::device_ptr<double> y_ptr(y);
+	thrust::fill(y_ptr, y_ptr+point_count_1, 0.0);
 
 
 	struct work_item* mat_vec_data_h = new struct work_item[mat_vec_info->dense_count+mat_vec_info->aca_count];
@@ -3259,8 +3262,9 @@ void sequential_h_matrix_mvp_without_batching(double* x, double* y, struct work_
 		cudaMemcpy(&point_count_1, point_count_1_d, sizeof(int), cudaMemcpyDeviceToHost);
 		cudaMemcpy(&dim, dim_d, sizeof(int), cudaMemcpyDeviceToHost);
 		cudaFree(point_count_1_d); cudaFree(dim_d);
-		thrust::device_ptr<double> y_ptr(y);
-		thrust::fill(y_ptr, y_ptr+point_count_1, 0.0);
+
+	thrust::device_ptr<double> y_ptr(y);
+	thrust::fill(y_ptr, y_ptr+point_count_1, 0.0);
 
 
 	TIME_ssstart;
