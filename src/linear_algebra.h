@@ -101,5 +101,5 @@ extern void precompute_aca_for_h_matrix_mvp(struct work_item* mat_vec_data, stru
 
 extern void sequential_h_matrix_mvp_without_batching(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, int kernel_type);
 
-extern void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, int kernel_type);
+extern void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, int kernel_type, int max_batched_dense_size, int max_batched_aca_size);
 #endif /* LINEAR_ALGEBRA_H_ */

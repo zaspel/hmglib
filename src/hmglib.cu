@@ -206,7 +206,7 @@ void apply_h_matrix_mvp(double* x, double* y, struct h_matrix_data* data)
 
 	if (data->U==0) // if ACA has not been precomputed, recompute it every time
 	{
-		sequential_h_matrix_mvp(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->kernel_type);
+		sequential_h_matrix_mvp(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->kernel_type, data->max_batched_dense_size, data->max_batched_aca_size);
 }
 	else // if ACA has been precomputed, use it
 	{

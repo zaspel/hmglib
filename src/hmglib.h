@@ -75,6 +75,8 @@ struct h_matrix_data
 
 	int kernel_type;
 
+	int max_batched_dense_size;
+	int max_batched_aca_size;
 
 	double* U;
 	double* V;
