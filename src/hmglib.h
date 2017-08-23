@@ -78,6 +78,8 @@ struct h_matrix_data
 	int max_batched_dense_size;
 	int max_batched_aca_size;
 
+	double dense_batching_ratio;
+
 	double* U;
 	double* V;
 };
