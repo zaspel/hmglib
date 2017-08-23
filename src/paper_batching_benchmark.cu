@@ -58,9 +58,9 @@ void gen_halton_points(double** point_set, int dim, int point_count)
 
 int main( int argc, char* argv[])
 {
-	if (argc!=9)
+	if (argc!=12)
 	{
-		printf("./tree_test <Nx> <Ny> <k> <c_leaf> <exponent of epsilon> <eta> <kernel_type> <dim>\n");
+		printf("./tree_test <Nx> <Ny> <k> <c_leaf> <exponent of epsilon> <eta> <kernel_type> <dim> <dense_batch_size> <dense_batching_ratio> <aca_batch_size>\n");
 		return 0;
 	}
 
@@ -108,8 +108,10 @@ int main( int argc, char* argv[])
 	data.kernel_type = atoi(argv[7]);
 
         // set batching sizes
-        data.max_batched_dense_size = 8192;
-        data.max_batched_aca_size = 65536;
+        data.max_batched_dense_size = atoi(argv[9]);
+	data.dense_batching_ratio = atof(argv[10]);
+        data.max_batched_aca_size = atoi(argv[11]);
+
 
 	// generate Halton sequence points (on CPU due to missing CURAND support for Halton sequences)
 	double** coords_1_h = new double*[dim];
@@ -158,13 +160,14 @@ int main( int argc, char* argv[])
 	
 		// generate random vector x
 		curandGenerateUniformDouble(vec_gen, x, point_count[1]);
-	
-		// apply H matrix to vector without batching
-		apply_h_matrix_mvp_without_batching(x, y_test, &data);
-	
-		// apply H matrix to same vector with batching
+
+		// apply H matrix to vector with batching
 		apply_h_matrix_mvp(x, y, &data);
 	
+//		// apply H matrix to vector without batching
+//		apply_h_matrix_mvp_without_batching(x, y_test, &data);
+	
+
 	}
 
 	delete [] errors;

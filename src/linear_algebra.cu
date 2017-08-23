@@ -2354,8 +2354,6 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 //	printf("1:   %lf MB of %lf MB available.\n", (double)free_mem/(1024.0*1024.0));
 //	}
 
-
-
 	// ------------------------
 	// compute sizes of batches
 	// ------------------------
@@ -2448,17 +2446,19 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 //
 //	compute_point_map_and_pattern_with_padding(point_map_with_padding, pattern_with_padding, m2_total, m2, point_map_offsets2, m2_max, mat_vec_data, mat_vec_data_count);
 
-
 	//------------------------------------------
 	// allocate and init batched dense subblocks
 	//------------------------------------------
+
 	double* S;
 	cudaMalloc((void**)&S, (m1_total*m2_total)*sizeof(double));  
 	checkCUDAError("cudaMalloc");
 
 	thrust::device_ptr<double> S_ptr(S);
 
-	thrust::fill(S_ptr, S_ptr+m1_total*m2_total, 0.0);
+//	thrust::fill(S_ptr, S_ptr+m1_total*m2_total, 0.0);
+
+	cudaMemset(S, 0, m1_total*m2_total*sizeof(double));
 
 	//-------------------------------------------
 	// fill batched dense subblocks
@@ -2505,7 +2505,6 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 
 	cublasDgemv(handle, CUBLAS_OP_N, m1_total, m2_total, &one, S, m1_total, local_x, 1, &zero, local_y, 1);
 
-
         thrust::device_ptr<double> local_y_ptr(local_y);
         thrust::device_ptr<double> y_ptr(y);
 
@@ -2514,6 +2513,7 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
         add_batched_local_results_to_full_vector<<<(m1_total + (block_size - 1)) / block_size, block_size>>>(y, local_y, point_map1, work_item_map1, m1_total);
 
 //      TIME_ssstop("ACA apply");
+
 
         cudaFree(local_x);
         cudaFree(local_y);
@@ -3041,7 +3041,7 @@ __global__ void linear_algebra_get_point_count_dim(int* point_count, int* dim, s
         *dim = input_set1->dim;
 }
 
-void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* U, double* V, int kernel_type, int max_batched_dense_size)
+void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* U, double* V, int kernel_type, int max_batched_dense_size, double dense_batching_ratio)
 {
     cublasStatus_t stat;
     cublasHandle_t handle;
@@ -3072,7 +3072,7 @@ void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct w
         int current_dense_work_size;
         int current_dense_work_item_index = 0;
 
-        current_dense_work_size = compute_current_dense_work_size(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
+        current_dense_work_size = compute_current_dense_work_size(mat_vec_data_h, mat_vec_info, max_batched_dense_size, dense_batching_ratio, current_dense_work_item_index);
 
         while (current_dense_work_size > 0)
         {
@@ -3080,7 +3080,7 @@ void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct w
 
                 current_dense_work_item_index += current_dense_work_size;       
 
-                current_dense_work_size = compute_current_dense_work_size(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
+                current_dense_work_size = compute_current_dense_work_size(mat_vec_data_h, mat_vec_info, max_batched_dense_size, dense_batching_ratio, current_dense_work_item_index);
         }
 
         TIME_ssstop("dense blocks");
@@ -3115,18 +3115,29 @@ void precompute_aca_for_h_matrix_mvp(struct work_item* mat_vec_data, struct mat_
     cublasDestroy(handle);
 }
 
-int compute_current_dense_work_size(struct work_item* mat_vec_data_h, struct mat_vec_data_info* mat_vec_info, int max_batched_size, int current_work_item_index)
+int compute_current_dense_work_size(struct work_item* mat_vec_data_h, struct mat_vec_data_info* mat_vec_info, int max_batched_size, double batching_ratio, int current_work_item_index)
 {
 	int current_dense_work_size = 0;
 	int current_full_matrix_size_a = 0;
 	int current_full_matrix_size_b = 0;
+	int current_actually_used_matrix_size = 0;
 
 	while ((current_full_matrix_size_a*current_full_matrix_size_b <= max_batched_size*max_batched_size)&&(current_work_item_index+current_dense_work_size<mat_vec_info->dense_count))
 	{
-		current_full_matrix_size_a += mat_vec_data_h[current_work_item_index+current_dense_work_size].set1_u-mat_vec_data_h[current_work_item_index+current_dense_work_size].set1_l+1;
-		current_full_matrix_size_b += mat_vec_data_h[current_work_item_index+current_dense_work_size].set2_u-mat_vec_data_h[current_work_item_index+current_dense_work_size].set2_l+1;
+		int size_a = mat_vec_data_h[current_work_item_index+current_dense_work_size].set1_u-mat_vec_data_h[current_work_item_index+current_dense_work_size].set1_l+1;
+		int size_b = mat_vec_data_h[current_work_item_index+current_dense_work_size].set2_u-mat_vec_data_h[current_work_item_index+current_dense_work_size].set2_l+1;
+
+		current_full_matrix_size_a += size_a;
+		current_full_matrix_size_b += size_b;
+
+		current_actually_used_matrix_size += size_a*size_b; 
 
 		current_dense_work_size++;
+
+//		printf("%d %d %d %d %d %d\n",current_full_matrix_size_a, current_full_matrix_size_b, current_actually_used_matrix_size, max_batched_size, current_work_item_index, current_dense_work_size);
+	
+		if ((double)current_actually_used_matrix_size/(double)(current_full_matrix_size_a*current_full_matrix_size_b)<batching_ratio)
+			break;
 	}
 
 	if (current_full_matrix_size_a*current_full_matrix_size_b > max_batched_size*max_batched_size)
@@ -3154,7 +3165,7 @@ int compute_current_aca_work_size(struct work_item* mat_vec_data_h, struct mat_v
 }
 
 
-void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, int kernel_type, int max_batched_dense_size, int max_batched_aca_size)
+void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, int kernel_type, int max_batched_dense_size, double dense_batching_ratio, int max_batched_aca_size)
 {
     cublasStatus_t stat;
     cublasHandle_t handle;
@@ -3183,7 +3194,7 @@ void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_dat
         int current_dense_work_size;
 	int current_dense_work_item_index = 0;
 
-	current_dense_work_size = compute_current_dense_work_size(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
+	current_dense_work_size = compute_current_dense_work_size(mat_vec_data_h, mat_vec_info, max_batched_dense_size, dense_batching_ratio, current_dense_work_item_index);
 
 	while (current_dense_work_size > 0)
 	{
@@ -3191,10 +3202,8 @@ void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_dat
 
 		current_dense_work_item_index += current_dense_work_size;	
 
-		current_dense_work_size = compute_current_dense_work_size(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
+		current_dense_work_size = compute_current_dense_work_size(mat_vec_data_h, mat_vec_info, max_batched_dense_size, dense_batching_ratio, current_dense_work_item_index);
         }
-
-
 
 	TIME_ssstop("dense blocks");
 

@@ -58,9 +58,9 @@ void gen_halton_points(double** point_set, int dim, int point_count)
 
 int main( int argc, char* argv[])
 {
-	if (argc!=9)
+	if (argc!=10)
 	{
-		printf("./tree_test <Nx> <Ny> <k> <c_leaf> <exponent of epsilon> <eta> <kernel_type> <dim>\n");
+		printf("./tree_test <Nx> <Ny> <k> <c_leaf> <exponent of epsilon> <eta> <kernel_type> <dim> <dense_batching_ratio>\n");
 		return 0;
 	}
 
@@ -108,8 +108,9 @@ int main( int argc, char* argv[])
 	data.kernel_type = atoi(argv[7]);
 
 	// set batching sizes
-	data.max_batched_dense_size = 8192;
-	data.max_batched_aca_size = 65536;
+	data.max_batched_dense_size = 16385;
+	data.dense_batching_ratio = atof(argv[9]);
+	data.max_batched_aca_size = 1048576;
 
 	// generate Halton sequence points (on CPU due to missing CURAND support for Halton sequences)
 	double** coords_1_h = new double*[dim];

@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with hmglib.  If not, see <http://www.gnu.org/licenses/>.
 
-CFLAGS = -O3 -arch=sm_35 -g -Xcompiler -fPIC
+CFLAGS = -O3 -arch=sm_35 -Xcompiler -fPIC
 
 all: hmglib_test paper_convergence_test paper_batching_benchmark
 
