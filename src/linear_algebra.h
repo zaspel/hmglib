@@ -24,6 +24,10 @@
 #include <thrust/device_ptr.h>
 #include "cublas_v2.h"
 
+#include "magma_v2.h"
+#include "magma_lapack.h"
+
+
 #ifndef CHECK_CUDA_ERROR
 #define CHECK_CUDA_ERROR
 extern void checkCUDAError(const char* msg);
@@ -99,11 +103,11 @@ extern int compute_current_aca_work_size(struct work_item* mat_vec_data_h, struc
 
 extern void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, int kernel_type);
 
-extern void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* U, double* V, int kernel_type, int max_batched_dense_size, double dense_batching_ratio);
+extern void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* U, double* V, int kernel_type, int max_batched_dense_size, double dense_batching_ratio, magma_queue_t magma_queue);
 
 extern void precompute_aca_for_h_matrix_mvp(struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double** U, double** V, int kernel_type);
 
 extern void sequential_h_matrix_mvp_without_batching(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, int kernel_type);
 
-extern void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, int kernel_type, int max_batched_dense_size, double dense_batching_ratio, int max_batched_aca_size);
+extern void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, int kernel_type, int max_batched_dense_size, double dense_batching_ratio, int max_batched_aca_size, magma_queue_t magma_queue);
 #endif /* LINEAR_ALGEBRA_H_ */

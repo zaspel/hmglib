@@ -129,8 +129,8 @@ int main( int argc, char* argv[])
 	// run setup of H matrix
 	setup_h_matrix(&data);
 
-//	// precomputation of ACA
-//	precompute_aca(&data);
+	// precomputation of ACA
+	precompute_aca(&data);
 
 	// allocate vectors for H matrix vs. full matrix test
 	double* x;
@@ -164,8 +164,8 @@ int main( int argc, char* argv[])
 		// apply H matrix to vector with batching
 		apply_h_matrix_mvp(x, y, &data);
 	
-//		// apply H matrix to vector without batching
-//		apply_h_matrix_mvp_without_batching(x, y_test, &data);
+		// apply H matrix to vector without batching
+		apply_h_matrix_mvp_without_batching(x, y_test, &data);
 	
 
 	}

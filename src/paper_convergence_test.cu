@@ -108,9 +108,9 @@ int main( int argc, char* argv[])
 	data.kernel_type = atoi(argv[7]);
 
 	// set batching sizes
-	data.max_batched_dense_size = 16385;
+	data.max_batched_dense_size = 100000000;
 	data.dense_batching_ratio = atof(argv[9]);
-	data.max_batched_aca_size = 1048576;
+	data.max_batched_aca_size = 10214400;
 
 	// generate Halton sequence points (on CPU due to missing CURAND support for Halton sequences)
 	double** coords_1_h = new double*[dim];
@@ -178,7 +178,7 @@ int main( int argc, char* argv[])
 		average_error += errors[i];
 	average_error = average_error / (double)trials;
 	
-	printf("Averaged relative error in H maitrix matrix-vector product: %le\n", average_error);
+	printf("Averaged relative error in H matrix matrix-vector product: %le\n", average_error);
 
 	delete [] errors;
 

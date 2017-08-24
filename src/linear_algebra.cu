@@ -99,7 +99,6 @@ __device__ double kernel(double* p1, double* p2, int dim, int kernel_type)
 	return val;
 }
 
-
 __global__ void fill_batched_matrix(double* matrix, struct work_item* mat_vec_data, struct point_set* input_set1, struct point_set* input_set2, int* m1, int* m2, int m1_total, int* point_map1, int* work_item_map1, int* point_map_offset1, int* point_map_offset2, int m2_max, int kernel_type )
 {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -134,14 +133,14 @@ __global__ void fill_batched_matrix(double* matrix, struct work_item* mat_vec_da
                 point2[d] = input_set2->coords[d][mat_vec_data[work_item_index].set2_l+j];
         }
 
-/*
-        double val = 0;
-        for (int d=0; d<dim; d++)
-        {
-                val += (point1[d]-point2[d])*(point1[d]-point2[d]);
-        }
-        val = sqrt(val);
-*/
+
+//        double val = 0;
+//        for (int d=0; d<dim; d++)
+//        {
+//                val += (point1[d]-point2[d])*(point1[d]-point2[d]);
+//        }
+//        val = sqrt(val);
+
 
 
 	// computing index for output in block_diagonal_matrix
@@ -150,6 +149,100 @@ __global__ void fill_batched_matrix(double* matrix, struct work_item* mat_vec_da
         matrix[full_idx] = kernel(point1, point2, dim, kernel_type);
 
 }
+
+__global__ void fill_batched_matrix_magma(double* matrix, struct work_item* mat_vec_data, struct point_set* input_set1, struct point_set* input_set2, int* m1, int* m2, int m1_total, int* point_map1, int* work_item_map1, int* point_map_offset1, int* point_map_offset2, int m2_max, int kernel_type )
+{
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+        if (idx >= m1_total*m2_max)
+                return;
+
+	int row_in_batched_matrix = idx % m1_total;
+	int column_in_batched_matrix = idx / m1_total;
+
+
+        int dim = input_set1->dim;
+        double point1[MAX_DIM];
+        double point2[MAX_DIM];
+
+        int work_item_index = work_item_map1[row_in_batched_matrix];
+
+        if (column_in_batched_matrix>=m2[work_item_index])
+	{
+//		matrix[idx] = 0.0;
+                return;
+	}
+
+        int i,j;
+
+        j = column_in_batched_matrix;
+        i = row_in_batched_matrix - point_map_offset1[work_item_index];
+	
+        for (int d=0; d<dim; d++)
+        {
+                point1[d] = input_set1->coords[d][mat_vec_data[work_item_index].set1_l+i];
+                point2[d] = input_set2->coords[d][mat_vec_data[work_item_index].set2_l+j];
+        }
+
+
+        matrix[point_map_offset1[work_item_index]*m2_max+j*m1[work_item_index]+i] = kernel(point1, point2, dim, kernel_type);
+
+}
+
+
+
+/*
+__global__ void fill_batched_matrix(double* matrix, struct work_item* mat_vec_data, struct point_set* input_set1, struct point_set* input_set2, int* m1, int* m2, int m1_total, int m2_total, int* point_map1, int* work_item_map1, int* point_map_offset1, int* point_map_offset2, int m2_max, int kernel_type )
+{
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+        if (idx >= m1_total*m2_total)
+                return;
+
+	int row_in_batched_matrix = idx % m1_total;
+	int column_in_batched_matrix = idx / m1_total;
+
+
+        int dim = input_set1->dim;
+        double point1[MAX_DIM];
+        double point2[MAX_DIM];
+
+        int work_item_index = work_item_map1[row_in_batched_matrix];
+
+        if ((column_in_batched_matrix<point_map_offset2[work_item_index])||(column_in_batched_matrix>=point_map_offset2[work_item_index]+m2[work_item_index]))
+	{
+		matrix[idx] = 0.0;
+                return;
+	}
+
+        int i,j;
+
+        j = column_in_batched_matrix - point_map_offset2[work_item_index];
+        i = row_in_batched_matrix - point_map_offset1[work_item_index];
+	
+        for (int d=0; d<dim; d++)
+        {
+                point1[d] = input_set1->coords[d][mat_vec_data[work_item_index].set1_l+i];
+                point2[d] = input_set2->coords[d][mat_vec_data[work_item_index].set2_l+j];
+        }
+
+
+//        double val = 0;
+//        for (int d=0; d<dim; d++)
+//        {
+//                val += (point1[d]-point2[d])*(point1[d]-point2[d]);
+//        }
+//        val = sqrt(val);
+
+
+
+	// computing index for output in block_diagonal_matrix
+//	int full_idx = (point_map_offset2[work_item_index]+column_in_batched_matrix)*m1_total + row_in_batched_matrix;
+
+        matrix[idx] = kernel(point1, point2, dim, kernel_type);
+
+}
+*/
 
 
 __global__ void fill_matrix(double* matrix, struct work_item current_mat_vec_data, struct point_set* input_set1, struct point_set* input_set2, int m1, int m2, int kernel_type )
@@ -418,7 +511,7 @@ void apply_aca_for_current_work_item(double* x, double* y, struct work_item curr
 
 	struct divide_by div;
 
-//	TIME_ssstart;
+////	TIME_ssstart;
 
 	// for r=1:k
 	for (int r=0; r<k; r++)
@@ -440,7 +533,7 @@ void apply_aca_for_current_work_item(double* x, double* y, struct work_item curr
 
 		do
 		{
-//			TIME_ssstart;
+//		//	TIME_ssstart;
 			i_r++;
 
 			fill_kernel_vector_and_substract_previous_vectors<<<(m2 + (block_size - 1)) / block_size, block_size>>>(v_r, current_mat_vec_data.set2_l, current_mat_vec_data.set2_u, current_mat_vec_data.set1_l+i_r, input_set2, input_set1, m1, m2, U, V, r, i_r, kernel_type);
@@ -449,28 +542,28 @@ void apply_aca_for_current_work_item(double* x, double* y, struct work_item curr
 
 			double norm = sqrt(thrust::inner_product(v_r_ptr, v_r_ptr+m2, v_r_ptr, 0.0));
 
-//			TIME_ssstop("ACA do-loop");
+//		//	TIME_ssstop("ACA do-loop");
 
 			if (norm>=1.0e-13) break;
 		} while (true);
 
 
-//		TIME_ssstart;
+//	//	TIME_ssstart;
 
 	    // [m,j_r] = max(abs(v_tilde_r));
 		thrust::device_ptr<double> max_pos = thrust::max_element(v_r_ptr, v_r_ptr+m2, compare_absolute());
 		int j_r = max_pos - v_r_ptr;
 
-//		TIME_ssstop("ACA intermediate 1");
-//		TIME_ssstart;
+//	//	TIME_ssstop("ACA intermediate 1");
+//	//	TIME_ssstart;
 
 		// v_r = (1.0./(v_tilde_k(j_r)))*v_tilde_r;
 	    cudaMemcpy(&div.val, &v_r[j_r], sizeof(double), cudaMemcpyDeviceToHost);
 		checkCUDAError("cudaMemcpy2");
 		thrust::transform(v_r_ptr, v_r_ptr+m2, v_r_ptr, div);
 
-//		TIME_ssstop("ACA intermediate 2");
-//		TIME_ssstart;
+//	//	TIME_ssstop("ACA intermediate 2");
+//	//	TIME_ssstart;
 
 //		// u_r = kernel(input_set1(:,:),input_set2(j_r,:));
 //	    // for l=1:r-1
@@ -481,20 +574,20 @@ void apply_aca_for_current_work_item(double* x, double* y, struct work_item curr
 		cudaThreadSynchronize();
 		checkCUDAError("fill_kernel_vector_and_substract_previous_vectors");
 
-//		TIME_ssstop("ACA middle");
+//	//	TIME_ssstop("ACA middle");
 
 		bool check_frobenius = false;
 
 		if ((check_frobenius) && (r%5==0)) // apply stopping criterion only in every fifth iteration since it is very expensive
 		{
-//			TIME_ssstart;
+//		//	TIME_ssstart;
 
 			// frobenius(U*V') = sqrt(sum(sum((V'*V).*(U'*U))))
 			double res = compute_frobenius_norm_of_low_rank_matrix(U, V, m1, m2, k, stat, handle);
 
-//			TIME_ssstop("ACA frobenius norm");
+//		//	TIME_ssstop("ACA frobenius norm");
 
-//			TIME_ssstart;
+//		//	TIME_ssstart;
 
 			double u_r_2norm;
 			double v_r_2norm;
@@ -504,7 +597,7 @@ void apply_aca_for_current_work_item(double* x, double* y, struct work_item curr
 			v_r_2norm = sqrt(thrust::inner_product(v_r_ptr, v_r_ptr+m2, v_r_ptr, 0.0));
 
 
-//			TIME_ssstop("ACA norm rest");
+//		//	TIME_ssstop("ACA norm rest");
 
 			//		printf("u v f %le %le %le\n", u_r_2norm, v_r_2norm, res);
 			if (u_r_2norm*v_r_2norm <= ((epsilon*(1.0-eta))/(1.0+epsilon))*res)
@@ -516,9 +609,9 @@ void apply_aca_for_current_work_item(double* x, double* y, struct work_item curr
 		}
 	}
 
-//	TIME_ssstop("aca approx");
+////	TIME_ssstop("aca approx");
 
-//	TIME_ssstart;
+////	TIME_ssstart;
 
 	// allocation and extraction of local operand
 	double* local_x;
@@ -561,7 +654,7 @@ void apply_aca_for_current_work_item(double* x, double* y, struct work_item curr
 	// adding local result to full vector
 	thrust::transform(y_ptr+current_mat_vec_data.set1_l, y_ptr+current_mat_vec_data.set1_l+m1, local_y_ptr, y_ptr+current_mat_vec_data.set1_l, thrust::plus<double>());
 
-//	TIME_ssstop("aca apply");
+////	TIME_ssstop("aca apply");
 
 	cudaFree(local_x);
 	cudaFree(local_y);
@@ -1226,7 +1319,8 @@ __global__ void add_batched_local_results_to_full_vector(double* y, double* y_lo
 
 	double val = y_local[idx];
 
-	myAtomicAdd(&y[point_map1[idx]], val);
+//	myAtomicAdd(&y[point_map1[idx]], val);
+	atomicAdd(&y[point_map1[idx]], val);
 
 }
 
@@ -1460,7 +1554,7 @@ void batched_low_rank_mvp(double* x, double* y, double* U, double* V, int m1_tot
 	//thrust::transform(y_ptr+current_mat_vec_data.set1_l, y_ptr+current_mat_vec_data.set1_l+m1, local_y_ptr, y_ptr+current_mat_vec_data.set1_l, thrust::plus<double>());
 	add_batched_local_results_to_full_vector<<<(m1_total + (block_size - 1)) / block_size, block_size>>>(y, local_y, point_map1, work_item_map1, m1_total);
 
-//	TIME_ssstop("ACA apply");
+////	TIME_ssstop("ACA apply");
 
 	cudaFree(local_x);
 	cudaFree(local_y);
@@ -1518,9 +1612,9 @@ bool do_stop_based_on_batched_frobenius_norm(double* U, double* V, double* u_r, 
 
 			cublasSetStream(handle, 0);
 
-//			TIME_ssstop("ACA Frobenius C,D computation");
+//		//	TIME_ssstop("ACA Frobenius C,D computation");
 
-//			TIME_ssstart;
+//		//	TIME_ssstart;
 
 			double* res;
 			cudaMalloc((void**)&res, sizeof(double)*batch_count);
@@ -1575,8 +1669,8 @@ bool do_stop_based_on_batched_frobenius_norm(double* U, double* V, double* u_r, 
 
 			cudaFree(work_item_map_for_kxk_products);
 
-//			TIME_ssstop("ACA Frobenius norm_eval (part 1)");
-//			TIME_ssstart;
+//		//	TIME_ssstop("ACA Frobenius norm_eval (part 1)");
+//		//	TIME_ssstart;
 
 			int norm_count;
 			compute_batched_norms(u_r_2norm, &norm_count, u_r, m1_total, work_item_map1_ptr, block_size);
@@ -1589,8 +1683,8 @@ bool do_stop_based_on_batched_frobenius_norm(double* U, double* V, double* u_r, 
 
 			compute_batched_norms(v_r_2norm, &norm_count, v_r, m2_total, work_item_map2_ptr, block_size);
 
-//			TIME_ssstop("ACA Frobenius norm_eval (part 2)");
-//			TIME_ssstart;
+//		//	TIME_ssstop("ACA Frobenius norm_eval (part 2)");
+//		//	TIME_ssstart;
 
 			cudaFree(C);
 			cudaFree(D);
@@ -1618,7 +1712,7 @@ bool do_stop_based_on_batched_frobenius_norm(double* U, double* V, double* u_r, 
 			//			cublasDgemv(handle, CUBLAS_OP_N, m1_h[s], k, &one, &U[point_map_offsets1_h[s]], m1_total, &local_tmp[k*current_batch], 1, &zero, &local_y[point_map_offsets1_h[s]], 1);
 
 
-//			TIME_ssstop("ACA Frobenius rest");
+//		//	TIME_ssstop("ACA Frobenius rest");
 
 			bool stop = thrust::all_of(stop_aca_as_soon_as_possible_ptr, stop_aca_as_soon_as_possible_ptr+batch_count, thrust::identity<bool>());
 
@@ -1914,9 +2008,9 @@ void compute_current_batched_v_r(double* v_r, double* U, double* V, int m1_total
 
 	thrust::replace_if(compute_v_r_ptr, compute_v_r_ptr+mat_vec_data_count, k_per_item_ptr, ser, 0);
 
-//	TIME_ssstop("ACA beginning of r loop");
+////	TIME_ssstop("ACA beginning of r loop");
 
-//	TIME_ssstart;
+////	TIME_ssstart;
 
 	while (true)
 	{
@@ -1977,9 +2071,9 @@ void compute_current_batched_v_r(double* v_r, double* U, double* V, int m1_total
 
 		
 
-//	TIME_ssstop("ACA v_r computation loop");
+////	TIME_ssstop("ACA v_r computation loop");
 
-//	TIME_ssstart;
+////	TIME_ssstart;
 
 	cudaFree(keys_output);
 	checkCUDAError("cudaFree");
@@ -2007,8 +2101,8 @@ void compute_current_batched_u_r(double* u_r, double* v_r, double* U, double* V,
 		checkCUDAError("cudaMalloc");
 		thrust::device_ptr<int> batch_to_work_item_map_ptr(batch_to_work_item_map);
 
-//		TIME_ssstop("ACA u_r computation 2");
-//		TIME_ssstart;
+//	//	TIME_ssstop("ACA u_r computation 2");
+//	//	TIME_ssstart;
 
 		// allocate and fill "indices" with 0, 1, 2, ...
 		int* indices;
@@ -2026,8 +2120,8 @@ void compute_current_batched_u_r(double* u_r, double* v_r, double* U, double* V,
 		cudaFree(maximum_values);
 		cudaFree(batch_to_work_item_map);
 
-//		TIME_ssstop("ACA u_r computation 3");
-//		TIME_ssstart;
+//	//	TIME_ssstop("ACA u_r computation 3");
+//	//	TIME_ssstart;
 
 // not necessary since they all are valid by construction
 //		// invalidate j_r_global entries in case they belong to invalid work items
@@ -2045,8 +2139,8 @@ void compute_current_batched_u_r(double* u_r, double* v_r, double* U, double* V,
 	    // end
 
 
-//		TIME_ssstop("ACA u_r computation 4");
-//		TIME_ssstart;
+//	//	TIME_ssstop("ACA u_r computation 4");
+//	//	TIME_ssstart;
 
 //		batched_fill_kernel_vector_u_r<<<(m1_total + (block_size-1)) / block_size, block_size>>>(u_r, point_map1, point_map2, work_item_to_batch_map, work_item_map1, k_per_item, r, j_r_global, input_set1, input_set2, m1_total);
 //		cudaThreadSynchronize();
@@ -2340,8 +2434,7 @@ void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int
 
 }
 
-
-void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, int kernel_type)
+void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, int kernel_type, double* S)
 {
 	int block_size = 512;
 
@@ -2353,6 +2446,8 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 //	cudaMemGetInfo(&free_mem, &total_mem);
 //	printf("1:   %lf MB of %lf MB available.\n", (double)free_mem/(1024.0*1024.0));
 //	}
+
+//	TIME_ssstart;
 
 	// ------------------------
 	// compute sizes of batches
@@ -2369,6 +2464,10 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 	m1_total = thrust::reduce(m1_ptr, m1_ptr+mat_vec_data_count);
 	m2_total = thrust::reduce(m2_ptr, m2_ptr+mat_vec_data_count);
 
+//	TIME_ssstop("Indexing a.1");
+//	TIME_ssstart;
+
+
 
 	// -------------------------------
 	// generate all the necessary maps
@@ -2382,14 +2481,34 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 	int* work_item_map1; // map of rows of U to work item indices in mat_vec_data
 	int* work_item_map2; // map of rows of V to work item indices in mat_vec_data
 	int* work_item_to_batch_map;  // map between work item list (including invalid entries) and batch set list (without invalid entries)
+//	TIME_ssstop("Indexing a.1");
 
+//	printf("%d %d %d\n",mat_vec_data_count, m1_total, m2_total);
+
+
+//	TIME_ssstart;
 	cudaMalloc((void**)&point_map_offsets1, mat_vec_data_count*sizeof(int));
+//	TIME_ssstop("Indexing a.1a");
+//	TIME_ssstart;
 	cudaMalloc((void**)&point_map_offsets2, mat_vec_data_count*sizeof(int));
+//	TIME_ssstop("Indexing a.1b");
+//	TIME_ssstart;
 	cudaMalloc((void**)&point_map1, m1_total*sizeof(int));
+//	TIME_ssstop("Indexing a.1c");
+//	TIME_ssstart;
 	cudaMalloc((void**)&point_map2, m2_total*sizeof(int));
+//	TIME_ssstop("Indexing a.1d");
+//	TIME_ssstart;
 	cudaMalloc((void**)&work_item_map1, m1_total*sizeof(int));
+//	TIME_ssstop("Indexing a.1e");
+//	TIME_ssstart;
 	cudaMalloc((void**)&work_item_map2, m2_total*sizeof(int));
+//	TIME_ssstop("Indexing a.1f");
+//	TIME_ssstart;
 	cudaMalloc((void**)&work_item_to_batch_map, mat_vec_data_count*sizeof(int));
+//	TIME_ssstop("Indexing a.1g");
+//	TIME_ssstart;
+
 
 	thrust::device_ptr<int> point_map_offsets1_ptr(point_map_offsets1);
 	thrust::device_ptr<int> point_map_offsets2_ptr(point_map_offsets2);
@@ -2399,7 +2518,13 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 	thrust::device_ptr<int> work_item_map2_ptr(work_item_map2);
 	thrust::device_ptr<int> work_item_to_batch_map_ptr(work_item_to_batch_map);
 
+//	TIME_ssstop("Indexing a.2");
+//	TIME_ssstart;
+
 	create_maps_and_indices(m1, m2, m1_total, m2_total, point_map_offsets1, point_map_offsets2, point_map1, point_map2, work_item_map1, work_item_map2, work_item_to_batch_map, &batch_count, mat_vec_data, mat_vec_data_count, WT_DENSE);
+
+//	TIME_ssstop("Indexing b");
+//	TIME_ssstart;
 
 	// -----------------------------------------------------
 	// create local copies of some of the index / map fields
@@ -2431,7 +2556,9 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 	int m1_max = thrust::reduce(m1_ptr, m1_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
 	int m2_max = thrust::reduce(m2_ptr, m2_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
 
-	
+//	TIME_ssstop("Indexing c");	
+//	TIME_ssstart;
+
 //	// --------------------------------------
 //	// compute lookup table to gether local x
 //	// --------------------------------------
@@ -2450,16 +2577,21 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 	// allocate and init batched dense subblocks
 	//------------------------------------------
 
-	double* S;
-	cudaMalloc((void**)&S, (m1_total*m2_total)*sizeof(double));  
-	checkCUDAError("cudaMalloc");
+//	double* S;
+//	cudaMalloc((void**)&S, (m1_total*m2_total)*sizeof(double));  
+//	checkCUDAError("cudaMalloc");
+
+//	TIME_ssstop("FILLING.1")
+//	TIME_ssstart;
 
 	thrust::device_ptr<double> S_ptr(S);
 
 //	thrust::fill(S_ptr, S_ptr+m1_total*m2_total, 0.0);
 
 	cudaMemset(S, 0, m1_total*m2_total*sizeof(double));
-
+//	TIME_ssstop("FILLING.2")
+//	TIME_ssstart;
+	
 	//-------------------------------------------
 	// fill batched dense subblocks
 	//-------------------------------------------
@@ -2467,10 +2599,22 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 //	printf("m1_total %d  m2_max %d\n", m1_total, m2_max);
 
 //	printf("fill_batched_matrix %d %d\n",(m1_total*m2_max + (block_size - 1)) / block_size, block_size);
+
 	fill_batched_matrix<<<(m1_total*m2_max + (block_size - 1)) / block_size, block_size>>>(S, mat_vec_data, input_set1, input_set2, m1, m2, m1_total, point_map1, work_item_map1, point_map_offsets1, point_map_offsets2, m2_max, kernel_type );
 	cudaThreadSynchronize();
 	checkCUDAError("fill_batched_matrix");
+
+//	fill_batched_matrix<<<(m1_total*m2_total + (block_size - 1)) / block_size, block_size>>>(S, mat_vec_data, input_set1, input_set2, m1, m2, m1_total, m2_total, point_map1, work_item_map1, point_map_offsets1, point_map_offsets2, m2_max, kernel_type );
+//	cudaThreadSynchronize();
+//	checkCUDAError("fill_batched_matrix");
+
+
+
+
+//	TIME_ssstop("FILLING.3")
+//	TIME_ssstart;
 	
+
 //        thrust::device_ptr<int> point_map1_ptr(point_map1);
 //        thrust::device_ptr<int> point_map2_ptr(point_map2);
 
@@ -2491,6 +2635,8 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 
         thrust::gather(point_map2_ptr, point_map2_ptr+m2_total, x_ptr, local_x_ptr);
 
+//	TIME_ssstop("Getting x_local");
+//	TIME_ssstart;
 
         // allocation of batched local results
         double* local_y;
@@ -2505,6 +2651,9 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 
 	cublasDgemv(handle, CUBLAS_OP_N, m1_total, m2_total, &one, S, m1_total, local_x, 1, &zero, local_y, 1);
 
+//	TIME_ssstop("MVP");
+//	TIME_ssstart;
+
         thrust::device_ptr<double> local_y_ptr(local_y);
         thrust::device_ptr<double> y_ptr(y);
 
@@ -2517,6 +2666,8 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 
         cudaFree(local_x);
         cudaFree(local_y);
+
+//	TIME_ssstop("Update");
 
 //	cudaFree(point_map_with_padding);
 //	cudaFree(pattern_with_padding);
@@ -2550,7 +2701,7 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 	delete [] point_map_offsets2_h;
 
 
-	cudaFree(S);
+//	cudaFree(S);
 	cudaFree(point_map1);
 	cudaFree(point_map2);
 	cudaFree(work_item_map1);
@@ -2565,6 +2716,319 @@ void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, i
 //        }
 
 }
+
+__global__ void set_dA_array(double** dA_array, double* hA, int m2_max, int mat_vec_data_count, int* point_map_offsets1)
+{
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+        if (idx >= mat_vec_data_count)
+                return;
+
+	dA_array[idx] = hA + point_map_offsets1[idx]*m2_max;
+
+	return;
+}
+
+
+void apply_batched_dense_magma(double* x, double* y, struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, int kernel_type, magma_queue_t* queue, double* hA)
+{
+	int block_size = 512;
+
+	
+	thrust::device_ptr<struct work_item> mat_vec_data_ptr(mat_vec_data);
+
+//	{
+//	size_t free_mem, total_mem;
+//	cudaMemGetInfo(&free_mem, &total_mem);
+//	printf("1:   %lf MB of %lf MB available.\n", (double)free_mem/(1024.0*1024.0));
+//	}
+
+//	TIME_ssstart;
+
+	// ------------------------
+	// compute sizes of batches
+	// ------------------------
+	int* m1;
+	int* m2;
+	cudaMalloc((void**)&m1, (mat_vec_data_count+1)*sizeof(int));
+	cudaMalloc((void**)&m2, (mat_vec_data_count+1)*sizeof(int));
+	thrust::device_ptr<int> m1_ptr(m1);
+	thrust::device_ptr<int> m2_ptr(m2);
+	compute_m1_m2(m1, m2, mat_vec_data, mat_vec_data_count, WT_DENSE);
+	int m1_total;
+	int m2_total;
+	m1_total = thrust::reduce(m1_ptr, m1_ptr+mat_vec_data_count);
+	m2_total = thrust::reduce(m2_ptr, m2_ptr+mat_vec_data_count);
+
+/*
+	int* matrix_sizes;
+	cudaMalloc((void**)&matrix_sizes, (mat_vec_data_count)*sizeof(int));
+	thrust::device_ptr<int> matrix_sizes_ptr(matrix_sizes);
+	thrust::transform(m1_ptr, m1_ptr+mat_vec_data_count, m2_ptr, matrix_sizes_ptr, thrust::multiplies<int>());
+	int* matrix_offsets;
+	cudaMalloc((void**)&matrix_offsets, mat_vec_data_count*sizeof(int));
+	thrust::device_ptr<int> matrix_offsets_ptr(matrix_offsets);
+	thrust::exclusive_scan(matrix_sizes_ptr, matrix_sizes_ptr+mat_vec_data_count, matrix_offsets_ptr);	
+	int total_batched_matrix_size = thrust::reduce(matrix_sizes_ptr, matrix_sizes_ptr+mat_vec_data_count);
+*/
+	// -------------------------------
+	// generate all the necessary maps
+	// -------------------------------
+	int batch_count;
+
+	int* point_map_offsets1;  // mapping of work_items to offset in batched data
+	int* point_map_offsets2;
+	int* point_map1; // map of rows of U to point indices in point_set1
+	int* point_map2; // map of rows of V to point indices in point_set2
+	int* work_item_map1; // map of rows of U to work item indices in mat_vec_data
+	int* work_item_map2; // map of rows of V to work item indices in mat_vec_data
+	int* work_item_to_batch_map;  // map between work item list (including invalid entries) and batch set list (without invalid entries)
+
+//	printf("%d %d %d\n",mat_vec_data_count, m1_total, m2_total);
+
+
+	cudaMalloc((void**)&point_map_offsets1, mat_vec_data_count*sizeof(int));
+	cudaMalloc((void**)&point_map_offsets2, mat_vec_data_count*sizeof(int));
+	cudaMalloc((void**)&point_map1, m1_total*sizeof(int));
+	cudaMalloc((void**)&point_map2, m2_total*sizeof(int));
+	cudaMalloc((void**)&work_item_map1, m1_total*sizeof(int));
+	cudaMalloc((void**)&work_item_map2, m2_total*sizeof(int));
+	cudaMalloc((void**)&work_item_to_batch_map, mat_vec_data_count*sizeof(int));
+
+
+	thrust::device_ptr<int> point_map_offsets1_ptr(point_map_offsets1);
+	thrust::device_ptr<int> point_map_offsets2_ptr(point_map_offsets2);
+	thrust::device_ptr<int> point_map1_ptr(point_map1);
+	thrust::device_ptr<int> point_map2_ptr(point_map2);
+	thrust::device_ptr<int> work_item_map1_ptr(work_item_map1);
+	thrust::device_ptr<int> work_item_map2_ptr(work_item_map2);
+	thrust::device_ptr<int> work_item_to_batch_map_ptr(work_item_to_batch_map);
+
+
+	create_maps_and_indices(m1, m2, m1_total, m2_total, point_map_offsets1, point_map_offsets2, point_map1, point_map2, work_item_map1, work_item_map2, work_item_to_batch_map, &batch_count, mat_vec_data, mat_vec_data_count, WT_DENSE);
+
+
+	// -----------------------------------------------------
+	// create local copies of some of the index / map fields
+	// -----------------------------------------------------
+	int* m1_h;
+	int* m2_h;
+	int* point_map_offsets2_h;
+	int* point_map_offsets1_h;
+	
+	m1_h = new int[mat_vec_data_count];
+	m2_h = new int[mat_vec_data_count];
+	point_map_offsets2_h = new int[mat_vec_data_count];
+	point_map_offsets1_h = new int[mat_vec_data_count];
+	
+	cudaMemcpy(m1_h, m1, mat_vec_data_count*sizeof(int), cudaMemcpyDeviceToHost);
+	cudaMemcpy(m2_h, m2, mat_vec_data_count*sizeof(int), cudaMemcpyDeviceToHost);
+	cudaMemcpy(point_map_offsets1_h, point_map_offsets1, mat_vec_data_count*sizeof(int), cudaMemcpyDeviceToHost);
+	cudaMemcpy(point_map_offsets2_h, point_map_offsets2, mat_vec_data_count*sizeof(int), cudaMemcpyDeviceToHost);
+
+
+	//------------------------------
+	// get maximal m1,m2 for padding
+	//------------------------------
+	int m1_max = thrust::reduce(m1_ptr, m1_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
+	int m2_max = thrust::reduce(m2_ptr, m2_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
+
+//	TIME_ssstop("Indexing c");	
+//	TIME_ssstart;
+
+	
+	//-------------------------------------------
+	// fill batched dense subblocks
+	//-------------------------------------------
+
+//	printf("m1_total %d  m2_max %d\n", m1_total, m2_max);
+
+//	printf("fill_batched_matrix %d %d\n",(m1_total*m2_max + (block_size - 1)) / block_size, block_size);
+
+	double** hx_array = new double*[mat_vec_data_count];
+	double** hy_array = new double*[mat_vec_data_count];
+
+//	TIME_ssstop("FILLING.0.1")
+//	TIME_ssstart;
+
+//	printf("comparison: %d %d\n", total_batched_matrix_size, m1_total*m2_max);
+
+//	TIME_ssstop("FILLING.0.2")
+//	TIME_ssstart;
+
+	double** dA_array;
+	cudaMalloc((void**)&dA_array, mat_vec_data_count*sizeof(double*));
+	
+	set_dA_array<<<(mat_vec_data_count+(block_size-1)) / block_size, block_size>>>(dA_array, hA, m2_max, mat_vec_data_count, point_map_offsets1);
+	cudaThreadSynchronize();
+	checkCUDAError("set_dA_array");
+
+//	TIME_ssstop("FILLING.0.3")
+//	TIME_ssstart;
+
+	double** dx_array;
+	double** dy_array;
+	cudaMalloc((void**)&dx_array, mat_vec_data_count*sizeof(double*));
+	cudaMalloc((void**)&dy_array, mat_vec_data_count*sizeof(double*));
+
+//	TIME_ssstop("FILLING.1")
+//	TIME_ssstart;
+
+	fill_batched_matrix_magma<<<(m1_total*m2_max + (block_size - 1)) / block_size, block_size>>>(hA, mat_vec_data, input_set1, input_set2, m1, m2, m1_total, point_map1, work_item_map1, point_map_offsets1, point_map_offsets2, m2_max, kernel_type );
+	cudaThreadSynchronize();
+	checkCUDAError("fill_batched_matrix");
+
+//	TIME_ssstop("FILLING.2")
+//	TIME_ssstart;
+
+	//-------------------------------------------------
+        // allocation and extraction of batched local operands including padding
+	//------------------------------------------------
+
+	// allocation of local x (including padding)
+        double* local_x;
+        cudaMalloc((void**)&local_x, m2_total*sizeof(double));
+        checkCUDAError("cudaMalloc");
+
+	// getting pointers
+        thrust::device_ptr<double> local_x_ptr(local_x);
+        thrust::device_ptr<double> x_ptr(x);
+
+	thrust::fill(local_x_ptr, local_x_ptr+m2_total, 0.0);
+
+        thrust::gather(point_map2_ptr, point_map2_ptr+m2_total, x_ptr, local_x_ptr);
+
+	double* current_pointer = local_x;
+
+	for (int i=0; i<mat_vec_data_count; i++)
+	{
+		hx_array[i] = current_pointer;
+		current_pointer=current_pointer+m2_h[i];
+	}
+	cudaMemcpy(dx_array, hx_array, mat_vec_data_count*sizeof(double*), cudaMemcpyHostToDevice);
+	checkCUDAError("cudaMemcpy");
+
+//	TIME_ssstop("Getting x_local");
+//	TIME_ssstart;
+
+
+        // allocation of batched local results
+        double* local_y;
+        cudaMalloc((void**)&local_y, m1_total*sizeof(double));
+        checkCUDAError("cudaMalloc");
+
+	current_pointer = local_y;
+
+	for (int i=0; i<mat_vec_data_count; i++)
+	{
+		hy_array[i] = current_pointer;
+		current_pointer=current_pointer+m1_h[i];
+	}
+	cudaMemcpy(dy_array, hy_array, mat_vec_data_count*sizeof(double*), cudaMemcpyHostToDevice);
+
+//	TIME_ssstop("Preparing y_local");
+//	TIME_ssstart;
+
+        // batched matrix-vector-product
+        double one;
+        double zero;
+        one = 1.0;
+        zero = 0.0;
+
+	int* incx;
+	int* incy;
+	int* ldda;	
+	cudaMalloc((void**)&incx,sizeof(int)*(mat_vec_data_count+1));
+	cudaMalloc((void**)&incy,sizeof(int)*(mat_vec_data_count+1));
+	cudaMalloc((void**)&ldda,sizeof(int)*(mat_vec_data_count+1));
+	cudaMemcpy(ldda, m1, mat_vec_data_count*sizeof(int), cudaMemcpyDeviceToDevice);
+	thrust::device_ptr<int> incx_ptr(incx);
+	thrust::device_ptr<int> incy_ptr(incy);
+	thrust::fill(incx_ptr, incx_ptr+(mat_vec_data_count+1), 1);
+	thrust::fill(incy_ptr, incy_ptr+(mat_vec_data_count+1), 1);
+	
+//	TIME_ssstop("Magma init");
+//	TIME_ssstart;
+
+	magmablas_dgemv_vbatched( MagmaNoTrans, m1, m2, one, dA_array, ldda, dx_array, incx, zero, dy_array, incy, mat_vec_data_count, *queue);
+
+//	TIME_ssstop("MVP");
+//	TIME_ssstart;
+
+
+        thrust::device_ptr<double> local_y_ptr(local_y);
+        thrust::device_ptr<double> y_ptr(y);
+
+
+        // adding batched local results to full vector
+        //thrust::transform(y_ptr+current_mat_vec_data.set1_l, y_ptr+current_mat_vec_data.set1_l+m1, local_y_ptr, y_ptr+current_mat_vec_data.set1_l, thrust::plus<double>());
+        add_batched_local_results_to_full_vector<<<(m1_total + (block_size - 1)) / block_size, block_size>>>(y, local_y, point_map1, work_item_map1, m1_total);
+
+
+        cudaFree(local_x);
+        cudaFree(local_y);
+
+//	TIME_ssstop("Update");
+//	TIME_ssstart;
+
+	//-------------------------------------------------
+	//
+
+//	cudaFree(matrix_sizes);
+//	cudaFree(matrix_offsets);
+
+	cudaFree(work_item_to_batch_map);
+
+	cudaFree(dx_array);
+	cudaFree(dy_array);
+	cudaFree(dA_array);
+	cudaFree(incx);
+	cudaFree(incy);
+	cudaFree(ldda);
+
+	delete [] hx_array;
+	delete [] hy_array;
+
+
+//       {
+//        size_t free_mem, total_mem;
+//        cudaMemGetInfo(&free_mem, &total_mem);
+//        printf("2:   %lf MB of %lf MB available.\n", (double)free_mem/(1024.0*1024.0), (double)total_mem/(1024.0*1024.0));
+//        }
+
+	cudaFree(m1);
+	cudaFree(m2);
+	cudaFree(point_map_offsets1);
+	cudaFree(point_map_offsets2);
+
+
+
+
+	delete [] m1_h;
+	delete [] m2_h;
+	delete [] point_map_offsets1_h;
+	delete [] point_map_offsets2_h;
+
+
+	cudaFree(point_map1);
+	cudaFree(point_map2);
+	cudaFree(work_item_map1);
+	cudaFree(work_item_map2);
+	checkCUDAError("cudaFrees a the end of batched ACA");
+
+
+//       {
+//        size_t free_mem, total_mem;
+//        cudaMemGetInfo(&free_mem, &total_mem);
+//        printf("3:   %lf MB of %lf MB available.\n", (double)free_mem/(1024.0*1024.0), (double)total_mem/(1024.0*1024.0));
+//        }
+
+//	TIME_ssstop("frees");
+
+
+}
+
+
 
 
 void apply_precomputed_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, double eta, double epsilon, int k, double* U, double* V)
@@ -3041,7 +3505,56 @@ __global__ void linear_algebra_get_point_count_dim(int* point_count, int* dim, s
         *dim = input_set1->dim;
 }
 
-void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* U, double* V, int kernel_type, int max_batched_dense_size, double dense_batching_ratio)
+int compute_current_dense_work_size_magma(struct work_item* mat_vec_data_h, struct mat_vec_data_info* mat_vec_info, int max_batched_size, int current_work_item_index)
+{
+        int current_dense_work_size = 0;
+        int current_dense_matrix_size = 0;
+	int m2_max = 0;
+	int m1, m2;
+
+
+        while ((current_dense_matrix_size*m2_max <= max_batched_size)&&(current_work_item_index+current_dense_work_size<mat_vec_info->dense_count))
+        {
+		m1 = mat_vec_data_h[current_work_item_index+current_dense_work_size].set1_u-mat_vec_data_h[current_work_item_index+current_dense_work_size].set1_l+1;
+		m2 = mat_vec_data_h[current_work_item_index+current_dense_work_size].set2_u-mat_vec_data_h[current_work_item_index+current_dense_work_size].set2_l+1;
+		m2_max = max(m2_max,m2);
+
+                current_dense_matrix_size += m1;
+
+                current_dense_work_size++;
+
+//		printf("%d %d %d %d %d\n",current_dense_work_size, current_dense_matrix_size, max_batched_size, current_work_item_index, max_batched_size);
+        }
+
+        if (current_dense_matrix_size*m2_max > max_batched_size)  // attention, m2_max was changing during the adaption process, so this does not necessarily result in the correct output
+                current_dense_work_size--;
+
+	// this is whi I now start again from the beginning now using a fixed m2_max to make sure that changing m2_max during the adaption does not cause trouble
+
+	current_dense_work_size = 0;
+	current_dense_matrix_size = 0;
+
+        while ((current_dense_matrix_size*m2_max <= max_batched_size)&&(current_work_item_index+current_dense_work_size<mat_vec_info->dense_count))
+        {
+                m1 = mat_vec_data_h[current_work_item_index+current_dense_work_size].set1_u-mat_vec_data_h[current_work_item_index+current_dense_work_size].set1_l+1;
+                m2 = mat_vec_data_h[current_work_item_index+current_dense_work_size].set2_u-mat_vec_data_h[current_work_item_index+current_dense_work_size].set2_l+1;
+
+                current_dense_matrix_size += m1;
+
+                current_dense_work_size++;
+
+//              printf("%d %d %d %d %d\n",current_dense_work_size, current_dense_matrix_size, max_batched_size, current_work_item_index, max_batched_size);
+        }
+
+        if (current_dense_matrix_size*m2_max > max_batched_size)
+                current_dense_work_size--;
+
+
+        return current_dense_work_size;
+}
+
+
+void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* U, double* V, int kernel_type, int max_batched_dense_size, double dense_batching_ratio, magma_queue_t magma_queue)
 {
     cublasStatus_t stat;
     cublasHandle_t handle;
@@ -3069,19 +3582,26 @@ void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct w
         cudaMemcpy(mat_vec_data_h, mat_vec_data, (mat_vec_info->dense_count+mat_vec_info->aca_count)*sizeof(struct work_item), cudaMemcpyDeviceToHost);
 
         TIME_ssstart;
+        
         int current_dense_work_size;
         int current_dense_work_item_index = 0;
 
-        current_dense_work_size = compute_current_dense_work_size(mat_vec_data_h, mat_vec_info, max_batched_dense_size, dense_batching_ratio, current_dense_work_item_index);
+        double* dA;
+        cudaMalloc((void**)&dA, sizeof(double)*max_batched_dense_size);
+
+        current_dense_work_size = compute_current_dense_work_size_magma(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
+
 
         while (current_dense_work_size > 0)
         {
-                apply_batched_dense(x, y, &mat_vec_data[current_dense_work_item_index], current_dense_work_size, input_set1, input_set2, stat, handle, kernel_type);
+                apply_batched_dense_magma(x, y, &mat_vec_data[current_dense_work_item_index], current_dense_work_size, input_set1, input_set2, stat, handle, kernel_type, &magma_queue, dA);
 
-                current_dense_work_item_index += current_dense_work_size;       
+                current_dense_work_item_index += current_dense_work_size;
 
-                current_dense_work_size = compute_current_dense_work_size(mat_vec_data_h, mat_vec_info, max_batched_dense_size, dense_batching_ratio, current_dense_work_item_index);
+                current_dense_work_size = compute_current_dense_work_size_magma(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
         }
+
+        cudaFree(dA);
 
         TIME_ssstop("dense blocks");
 
@@ -3134,8 +3654,6 @@ int compute_current_dense_work_size(struct work_item* mat_vec_data_h, struct mat
 
 		current_dense_work_size++;
 
-//		printf("%d %d %d %d %d %d\n",current_full_matrix_size_a, current_full_matrix_size_b, current_actually_used_matrix_size, max_batched_size, current_work_item_index, current_dense_work_size);
-	
 		if ((double)current_actually_used_matrix_size/(double)(current_full_matrix_size_a*current_full_matrix_size_b)<batching_ratio)
 			break;
 	}
@@ -3164,8 +3682,7 @@ int compute_current_aca_work_size(struct work_item* mat_vec_data_h, struct mat_v
         return current_aca_work_size;
 }
 
-
-void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, int kernel_type, int max_batched_dense_size, double dense_batching_ratio, int max_batched_aca_size)
+void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, int kernel_type, int max_batched_dense_size, double dense_batching_ratio, int max_batched_aca_size, magma_queue_t magma_queue)
 {
     cublasStatus_t stat;
     cublasHandle_t handle;
@@ -3190,22 +3707,31 @@ void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_dat
 	
 	cudaMemcpy(mat_vec_data_h, mat_vec_data, (mat_vec_info->dense_count+mat_vec_info->aca_count)*sizeof(struct work_item), cudaMemcpyDeviceToHost);
 
+
 	TIME_ssstart;
+
         int current_dense_work_size;
 	int current_dense_work_item_index = 0;
 
-	current_dense_work_size = compute_current_dense_work_size(mat_vec_data_h, mat_vec_info, max_batched_dense_size, dense_batching_ratio, current_dense_work_item_index);
+	double* dA;
+	cudaMalloc((void**)&dA, sizeof(double)*max_batched_dense_size);
+
+	current_dense_work_size = compute_current_dense_work_size_magma(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
+
 
 	while (current_dense_work_size > 0)
 	{
-		apply_batched_dense(x, y, &mat_vec_data[current_dense_work_item_index], current_dense_work_size, input_set1, input_set2, stat, handle, kernel_type);
+		apply_batched_dense_magma(x, y, &mat_vec_data[current_dense_work_item_index], current_dense_work_size, input_set1, input_set2, stat, handle, kernel_type, &magma_queue, dA);
 
 		current_dense_work_item_index += current_dense_work_size;	
 
-		current_dense_work_size = compute_current_dense_work_size(mat_vec_data_h, mat_vec_info, max_batched_dense_size, dense_batching_ratio, current_dense_work_item_index);
+		current_dense_work_size = compute_current_dense_work_size_magma(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
         }
 
+	cudaFree(dA);
+
 	TIME_ssstop("dense blocks");
+
 
 	TIME_ssstart;
 

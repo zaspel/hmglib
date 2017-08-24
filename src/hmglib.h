@@ -22,6 +22,8 @@
 #include "morton.h"
 #include "tree.h"
 #include "linear_algebra.h"
+#include "magma_v2.h"
+#include "magma_lapack.h"
 
 struct h_matrix_data
 {
@@ -82,6 +84,8 @@ struct h_matrix_data
 
 	double* U;
 	double* V;
+
+	magma_queue_t magma_queue;
 };
 
 extern void init_h_matrix_data(struct h_matrix_data* data, int point_count[2], int dim, int bits);
