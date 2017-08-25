@@ -86,6 +86,11 @@ struct h_matrix_data
 	double* V;
 
 	magma_queue_t magma_queue;
+
+	int* dense_work_size;
+	int* aca_work_size;
+	int dense_batch_count;
+	int aca_batch_count;
 };
 
 extern void init_h_matrix_data(struct h_matrix_data* data, int point_count[2], int dim, int bits);

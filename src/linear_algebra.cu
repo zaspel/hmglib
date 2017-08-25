@@ -3554,7 +3554,7 @@ int compute_current_dense_work_size_magma(struct work_item* mat_vec_data_h, stru
 }
 
 
-void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* U, double* V, int kernel_type, int max_batched_dense_size, double dense_batching_ratio, magma_queue_t magma_queue)
+void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* U, double* V, int kernel_type, int max_batched_dense_size, double dense_batching_ratio, magma_queue_t magma_queue, int* dense_work_size, int dense_batch_count)
 {
     cublasStatus_t stat;
     cublasHandle_t handle;
@@ -3577,28 +3577,22 @@ void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct w
 	thrust::fill(y_ptr, y_ptr+point_count_1, 0.0);
 
 
-        struct work_item* mat_vec_data_h = new struct work_item[mat_vec_info->dense_count+mat_vec_info->aca_count];
-        
-        cudaMemcpy(mat_vec_data_h, mat_vec_data, (mat_vec_info->dense_count+mat_vec_info->aca_count)*sizeof(struct work_item), cudaMemcpyDeviceToHost);
-
         TIME_ssstart;
-        
-        int current_dense_work_size;
+
         int current_dense_work_item_index = 0;
 
         double* dA;
         cudaMalloc((void**)&dA, sizeof(double)*max_batched_dense_size);
 
-        current_dense_work_size = compute_current_dense_work_size_magma(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
-
-
-        while (current_dense_work_size > 0)
+        for (int b = 0; b<dense_batch_count; b++)
         {
-                apply_batched_dense_magma(x, y, &mat_vec_data[current_dense_work_item_index], current_dense_work_size, input_set1, input_set2, stat, handle, kernel_type, &magma_queue, dA);
+                if (dense_work_size[b]>0)
+                {
+                        apply_batched_dense_magma(x, y, &mat_vec_data[current_dense_work_item_index], dense_work_size[b], input_set1, input_set2, stat, handle, kernel_type, &magma_queue, dA);
 
-                current_dense_work_item_index += current_dense_work_size;
+                        current_dense_work_item_index += dense_work_size[b];
+                }
 
-                current_dense_work_size = compute_current_dense_work_size_magma(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
         }
 
         cudaFree(dA);
@@ -3682,7 +3676,97 @@ int compute_current_aca_work_size(struct work_item* mat_vec_data_h, struct mat_v
         return current_aca_work_size;
 }
 
-void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, int kernel_type, int max_batched_dense_size, double dense_batching_ratio, int max_batched_aca_size, magma_queue_t magma_queue)
+void precompute_work_sizes(int** dense_work_size, int** aca_work_size, int* dense_batch_count, int* aca_batch_count, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, int max_batched_dense_size, int max_batched_aca_size)
+{
+        struct work_item* mat_vec_data_h = new struct work_item[mat_vec_info->dense_count+mat_vec_info->aca_count];
+
+        cudaMemcpy(mat_vec_data_h, mat_vec_data, (mat_vec_info->dense_count+mat_vec_info->aca_count)*sizeof(struct work_item), cudaMemcpyDeviceToHost);
+
+        int current_dense_work_size;
+        int current_dense_work_item_index = 0;
+
+	dense_batch_count[0]=0;
+	aca_batch_count[0]=0;
+
+	// computing the number of batches that have to be found
+
+        current_dense_work_size = compute_current_dense_work_size_magma(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
+	dense_batch_count[0]++;	
+
+        while (current_dense_work_size > 0)
+        {
+                current_dense_work_item_index += current_dense_work_size;
+
+                current_dense_work_size = compute_current_dense_work_size_magma(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
+		dense_batch_count[0]++;
+	}
+
+        int current_aca_work_size;
+        int current_aca_work_item_index = mat_vec_info->dense_count;
+
+        current_aca_work_size = compute_current_aca_work_size(mat_vec_data_h, mat_vec_info, max_batched_aca_size, current_aca_work_item_index);
+	aca_batch_count[0]++;
+
+        while (current_aca_work_size > 0)
+        {
+                current_aca_work_item_index += current_aca_work_size;
+
+                current_aca_work_size = compute_current_aca_work_size(mat_vec_data_h, mat_vec_info, max_batched_aca_size, current_aca_work_item_index);
+
+		aca_batch_count[0]++;
+        }
+
+
+	// now, I can allocate the appropriatly sized arrays and store the sizes of the batches
+	
+	dense_work_size[0] = new int[dense_batch_count[0]];
+	aca_work_size[0] = new int[aca_batch_count[0]];
+
+	int index = 0;
+
+	current_dense_work_item_index = 0;
+
+
+        current_dense_work_size = compute_current_dense_work_size_magma(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
+
+	dense_work_size[0][index] = current_dense_work_size;
+	index++;
+
+        while (current_dense_work_size > 0)
+        {
+                current_dense_work_item_index += current_dense_work_size;
+
+                current_dense_work_size = compute_current_dense_work_size_magma(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
+		dense_work_size[0][index] = current_dense_work_size;
+                index++;
+        }
+
+	index = 0;
+
+        current_aca_work_item_index = mat_vec_info->dense_count;
+	
+        current_aca_work_size = compute_current_aca_work_size(mat_vec_data_h, mat_vec_info, max_batched_aca_size, current_aca_work_item_index);
+        aca_work_size[0][index] = current_aca_work_size;
+	index++;
+
+        while (current_aca_work_size > 0)
+        {
+                current_aca_work_item_index += current_aca_work_size;
+                current_aca_work_size = compute_current_aca_work_size(mat_vec_data_h, mat_vec_info, max_batched_aca_size, current_aca_work_item_index);
+
+                aca_work_size[0][index] = current_aca_work_size;
+		index++;
+        }
+
+
+
+        delete [] mat_vec_data_h;
+
+
+}
+
+
+void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, int kernel_type, int max_batched_dense_size, double dense_batching_ratio, int max_batched_aca_size, magma_queue_t magma_queue, int* dense_work_size, int* aca_work_size, int dense_batch_count, int aca_batch_count)
 {
     cublasStatus_t stat;
     cublasHandle_t handle;
@@ -3703,29 +3787,22 @@ void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_dat
 	thrust::fill(y_ptr, y_ptr+point_count_1, 0.0);
 
 
-	struct work_item* mat_vec_data_h = new struct work_item[mat_vec_info->dense_count+mat_vec_info->aca_count];
-	
-	cudaMemcpy(mat_vec_data_h, mat_vec_data, (mat_vec_info->dense_count+mat_vec_info->aca_count)*sizeof(struct work_item), cudaMemcpyDeviceToHost);
-
-
 	TIME_ssstart;
 
-        int current_dense_work_size;
 	int current_dense_work_item_index = 0;
 
 	double* dA;
 	cudaMalloc((void**)&dA, sizeof(double)*max_batched_dense_size);
 
-	current_dense_work_size = compute_current_dense_work_size_magma(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
-
-
-	while (current_dense_work_size > 0)
+	for (int b = 0; b<dense_batch_count; b++)
 	{
-		apply_batched_dense_magma(x, y, &mat_vec_data[current_dense_work_item_index], current_dense_work_size, input_set1, input_set2, stat, handle, kernel_type, &magma_queue, dA);
+		if (dense_work_size[b]>0)
+		{
+			apply_batched_dense_magma(x, y, &mat_vec_data[current_dense_work_item_index], dense_work_size[b], input_set1, input_set2, stat, handle, kernel_type, &magma_queue, dA);
 
-		current_dense_work_item_index += current_dense_work_size;	
+			current_dense_work_item_index += dense_work_size[b];	
+		}
 
-		current_dense_work_size = compute_current_dense_work_size_magma(mat_vec_data_h, mat_vec_info, max_batched_dense_size, current_dense_work_item_index);
         }
 
 	cudaFree(dA);
@@ -3737,23 +3814,19 @@ void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_dat
 
 	thrust::device_ptr<struct work_item> mat_vec_data_ptr(mat_vec_data);
 
-        int current_aca_work_size;
 	int current_aca_work_item_index = mat_vec_info->dense_count;
 
-	current_aca_work_size = compute_current_aca_work_size(mat_vec_data_h, mat_vec_info, max_batched_aca_size, current_aca_work_item_index);
-
-	while (current_aca_work_size > 0)
+	for (int b = 0; b<aca_batch_count; b++)
 	{
-		apply_batched_aca(x, y, &mat_vec_data[current_aca_work_item_index], current_aca_work_size, input_set1, input_set2, stat, handle, eta, epsilon, k, kernel_type);
+		if (aca_work_size[b] > 0)
+		{
+			apply_batched_aca(x, y, &mat_vec_data[current_aca_work_item_index], aca_work_size[b], input_set1, input_set2, stat, handle, eta, epsilon, k, kernel_type);
 
-		current_aca_work_item_index += current_aca_work_size;	
-
-		current_aca_work_size = compute_current_aca_work_size(mat_vec_data_h, mat_vec_info, max_batched_aca_size, current_aca_work_item_index);
+			current_aca_work_item_index += aca_work_size[b];	
+		}
         }
 
 	TIME_ssstop("ACA blocks");
-
-	delete [] mat_vec_data_h;
 
     
 	cublasDestroy(handle);
