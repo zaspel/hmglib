@@ -60,12 +60,12 @@ int main( int argc, char* argv[])
 {
 	if (argc!=12)
 	{
-		printf("./tree_test <Nx> <Ny> <k> <c_leaf> <exponent of epsilon> <eta> <kernel_type> <dim> <dense_batch_size> <dense_batching_ratio> <aca_batch_size>\n");
+		printf("%s <Nx> <Ny> <k> <c_leaf> <eta> <kernel_type> <dim> <dense_batch_size> <aca_batch_size> <use_precomputing> <use_batching>\n", argv[0]);
 		return 0;
 	}
 
 	// set dimension and morton code size
-	int dim = atoi(argv[8]);
+	int dim = atoi(argv[7]);
 	
 	int bits;
 	if (dim==2)
@@ -90,7 +90,7 @@ int main( int argc, char* argv[])
 	init_h_matrix_data(&data, point_count, dim, bits);
 
 	// set balance	
-	data.eta=atof(argv[6]);
+	data.eta=atof(argv[5]);
 
 	// set maximum level
 	data.max_level=50; // DEBUG
@@ -102,16 +102,21 @@ int main( int argc, char* argv[])
 	data.k = atoi(argv[3]);
 
 	// set threshold for ACA (currently not use)
-	data.epsilon = pow(10.0, atoi(argv[5]));
+//	data.epsilon = pow(10.0, atoi(argv[5]));  <- removed
 
 	// set kernel
-	data.kernel_type = atoi(argv[7]);
+	data.kernel_type = atoi(argv[6]);
 
         // set batching sizes
-        data.max_batched_dense_size = atoi(argv[9]);
-	data.dense_batching_ratio = atof(argv[10]);
-        data.max_batched_aca_size = atoi(argv[11]);
+        data.max_batched_dense_size = atoi(argv[8]);
+//	data.dense_batching_ratio = atof(argv[10]);   <- no longer needed
+        data.max_batched_aca_size = atoi(argv[9]);
 
+	int use_precomputing;
+	use_precomputing = atoi(argv[10]);
+
+	int use_batching;
+	use_batching = atoi(argv[11]);
 
 	// generate Halton sequence points (on CPU due to missing CURAND support for Halton sequences)
 	double** coords_1_h = new double*[dim];
@@ -130,7 +135,8 @@ int main( int argc, char* argv[])
 	setup_h_matrix(&data);
 
 	// precomputation of ACA
-	precompute_aca(&data);
+	if (use_precomputing)
+		precompute_aca(&data);
 
 	// allocate vectors for H matrix vs. full matrix test
 	double* x;
@@ -148,7 +154,7 @@ int main( int argc, char* argv[])
 	curandGenerator_t vec_gen;
 	curandCreateGenerator(&vec_gen, CURAND_RNG_PSEUDO_DEFAULT);
 
-	int trials = 10;
+	int trials = 5;
 
 	double* errors = new double[trials];
 
@@ -161,13 +167,16 @@ int main( int argc, char* argv[])
 		// generate random vector x
 		curandGenerateUniformDouble(vec_gen, x, point_count[1]);
 
-		// apply H matrix to vector with batching
-		apply_h_matrix_mvp(x, y, &data);
-	
-		// apply H matrix to vector without batching
-		apply_h_matrix_mvp_without_batching(x, y_test, &data);
-	
-
+		if (use_batching)
+		{
+			// apply H matrix to vector with batching
+			apply_h_matrix_mvp(x, y, &data);
+		}
+		else
+		{
+			// apply H matrix to vector without batching
+			apply_h_matrix_mvp_without_batching(x, y_test, &data);
+		}
 	}
 
 	delete [] errors;

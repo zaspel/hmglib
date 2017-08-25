@@ -112,6 +112,8 @@ void init_h_matrix_data(struct h_matrix_data* data, int point_count[2], int dim,
 
 void setup_h_matrix(struct h_matrix_data* data)
 {
+	TIME_start;
+
 	// compute extremal values for the point set
 	compute_minmax(data->points_d[0]);
 	compute_minmax(data->points_d[1]);
@@ -121,10 +123,8 @@ void setup_h_matrix(struct h_matrix_data* data)
 	int grid_size = (max(data->point_count[0],data->point_count[1]) + (block_size - 1)) / block_size;
 
 	// generate morton codes
-	TIME_start;
 	get_morton_code(data->points_d[0], data->morton_d[0], grid_size, block_size);
 	get_morton_code(data->points_d[1], data->morton_d[1], grid_size, block_size);
-	TIME_stop("get_morton_3d");
 	checkCUDAError("get_morton_code");
 
 //	print_points_with_morton_codes(data->points_d, data->morton_d);
@@ -144,6 +144,11 @@ void setup_h_matrix(struct h_matrix_data* data)
 	reorder_point_set(data->points_d[1], data->order[1]);
 //	TIME_stop("reorder_point_set");
 
+	TIME_stop("data structure setup");
+
+
+	TIME_start;
+	
 	struct work_item root_h;
 	root_h.set1_l = 0;
 	root_h.set1_u = data->point_count[0] - 1;
@@ -177,9 +182,7 @@ void setup_h_matrix(struct h_matrix_data* data)
 	data->mat_vec_data_array_size = 1048576;
 	cudaMalloc((void**)data->mat_vec_data, data->mat_vec_data_array_size*sizeof(struct work_item));
 
-	TIME_start;
 	traverse_with_dynamic_arrays_dynamic_output(root_h, data->mat_vec_data, &(data->mat_vec_data_count), &(data->mat_vec_data_array_size), data->morton_d[0], data->morton_d[1], data->points_d[0], data->points_d[1], data->eta, data->max_level, data->c_leaf, data->max_elements_in_array);
-	TIME_stop("traverse_with_arrays");
 
 //	printf("mat_vec_data_count: %d\n", mat_vec_data_count);
 //	print_work_items(*mat_vec_data, mat_vec_data_count);
@@ -190,6 +193,7 @@ void setup_h_matrix(struct h_matrix_data* data)
 	organize_mat_vec_data(*(data->mat_vec_data), data->mat_vec_data_count, &(data->mat_vec_info));
 
 
+	TIME_stop("tree construction and traversal");
 
 }
 

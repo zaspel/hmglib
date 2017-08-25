@@ -21,7 +21,7 @@ GSL_LIB = -I/home-2/pzaspel/gsllib/include -L/home-2/pzaspel/gsllib/lib -lgsl -l
 MAGMA_LIB= -L/home-2/pzaspel/magmalib/lib -lmagma -L/home-2/pzaspel/OpenBLASlib/lib -lopenblas -lcusparse -lcudart -lcudadevrt
 MAGMA_INC= -I/home-2/pzaspel/magmalib/include
 
-all: hmglib_test paper_convergence_test paper_batching_benchmark
+all: hmglib_test paper_convergence_test paper_benchmark
 
 hmglib_test: hmglib_test.cu libhmglib.so
 	nvcc $(CFLAGS) $(MAGMA_INC) $(MAGMA_LIB) -L. -lhmglib -lcurand -lcublas hmglib_test.cu -o hmglib_test
@@ -29,8 +29,8 @@ hmglib_test: hmglib_test.cu libhmglib.so
 paper_convergence_test: paper_convergence_test.cu libhmglib.so
 	nvcc $(CFLAGS) $(GSL_LIB) $(MAGMA_INC) $(MAGMA_LIB) -L. -lhmglib -lcurand -lcublas paper_convergence_test.cu -o paper_convergence_test
 
-paper_batching_benchmark: paper_batching_benchmark.cu libhmglib.so
-	nvcc $(CFLAGS) $(GSL_LIB) $(MAGMA_INC) $(MAGMA_LIB) -L. -lhmglib -lcurand -lcublas paper_batching_benchmark.cu -o paper_batching_benchmark
+paper_benchmark: paper_benchmark.cu libhmglib.so
+	nvcc $(CFLAGS) $(GSL_LIB) $(MAGMA_INC) $(MAGMA_LIB) -L. -lhmglib -lcurand -lcublas paper_benchmark.cu -o paper_benchmark
 
 morton.o: morton.cu morton.h
 	nvcc $(CFLAGS) -c morton.cu -o morton.o
