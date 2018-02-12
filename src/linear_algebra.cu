@@ -27,6 +27,7 @@
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/partition.h>
 #include <thrust/extrema.h>
+#include <thrust/gather.h>
 
 #include "linear_algebra.h"
 

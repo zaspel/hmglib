@@ -15,11 +15,21 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with hmglib.  If not, see <http://www.gnu.org/licenses/>.
 
-CFLAGS = -Xcompiler="-fPIC -DADD_" -O3 -gencode arch=compute_60,code=sm_60 -DADD_
-GSL_LIB = -I/home-2/pzaspel/gsllib/include -L/home-2/pzaspel/gsllib/lib -lgsl -lgslcblas -lm
+# set directory for OpenBLAS installation
+OPENBLAS_DIR = /users/staff/dmi-dmi/zaspel/opt/openblas
+# set directory for Magma installation
+MAGMA_DIR= /users/staff/dmi-dmi/zaspel/opt/magma
+# set directory for GSL installation
+GSL_DIR= /users/staff/dmi-dmi/zaspel/opt/gsl
+# set GPU architecture
+GPU_ARCH_SETTINGS=-gencode arch=compute_60,code=sm_60
 
-MAGMA_LIB= -L/home-2/pzaspel/magmalib/lib -lmagma -L/home-2/pzaspel/OpenBLASlib/lib -lopenblas -lcusparse -lcudart -lcudadevrt
-MAGMA_INC= -I/home-2/pzaspel/magmalib/include
+
+CFLAGS = -Xcompiler="-fPIC -DADD_" -O3 $(GPU_ARCH_SETTINGS) -DADD_
+GSL_LIB = -I$(GSL_DIR)/include -L$(GSL_DIR)/lib -lgsl -lgslcblas -lm
+
+MAGMA_LIB= -L$(MAGMA_DIR)/lib -lmagma -L$(OPENBLAS_DIR)/lib -lopenblas -lcusparse -lcudart -lcudadevrt
+MAGMA_INC= -I$(MAGMA_DIR)/include
 
 all: hmglib_test paper_convergence_test paper_benchmark
 
