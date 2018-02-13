@@ -27,6 +27,7 @@ struct point_set
 	int	size;
 	double* max_per_dim;
 	double* min_per_dim;
+	unsigned int* point_ids;
 };
 
 struct morton_code

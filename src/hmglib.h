@@ -29,7 +29,10 @@ struct h_matrix_data
 {
 	// point coordinates in dim dimensions
 	double** coords_d[2];
-	
+
+	// point ids
+	unsigned int* point_ids_d[2];
+
 	// extremal values per dimension
 	double* max_per_dim_d[2];
 	double* min_per_dim_d[2];

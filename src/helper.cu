@@ -79,6 +79,19 @@ __global__ void reorder_by_index(double* output, double* input, uint64_t* indice
 	return;
 }
 
+__global__ void reorder_by_index_point_ids(unsigned int* output, unsigned int* input, uint64_t* indices, int count)
+{
+	int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (idx>=count) return;
+
+	uint64_t ind = indices[idx];
+
+	output[idx] = input[ind];
+
+	return;
+}
+
 __global__ void reorder_back_by_index(double* output, double* input, uint64_t* indices, int count)
 {
 	int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -274,31 +287,38 @@ __global__ void set_3d_test_set(struct point_set* points)
 
 void reorder_point_set(struct point_set* points_d, uint64_t* order)
 {
+	TIME_start
+
 	struct point_set points_h;
 	cudaMemcpy(&points_h, points_d, sizeof(struct point_set), cudaMemcpyDeviceToHost);
 	int dim = points_h.dim;
 	int point_count = points_h.size;
 	
-	double** coords_d_host = new double*[dim];
-	cudaMemcpy(coords_d_host, points_h.coords, sizeof(double*)*dim, cudaMemcpyDeviceToHost);
-
-	double* coords_tmp;
-	cudaMalloc((void**)&coords_tmp, point_count*sizeof(double));
-
 	// calculate GPU thread configuration	
 	int block_size = 512;
 	int grid_size = (point_count + (block_size - 1)) / block_size;
 
-
-	TIME_start
+	// sort coordinates
+	double** coords_d_host = new double*[dim];
+	cudaMemcpy(coords_d_host, points_h.coords, sizeof(double*)*dim, cudaMemcpyDeviceToHost);
+	double* coords_tmp;
+	cudaMalloc((void**)&coords_tmp, point_count*sizeof(double));
 	for (int d=0; d<dim; d++)
 	{
 		reorder_by_index<<<grid_size, block_size>>>(coords_tmp, coords_d_host[d], order, point_count);
 		cudaMemcpy(coords_d_host[d], coords_tmp, point_count*sizeof(double), cudaMemcpyDeviceToDevice);	
 	}
-	TIME_stop("reorder points");
-	
 	cudaFree(coords_tmp);
+	delete [] coords_d_host;
+
+	// sort point indices
+	unsigned int* point_ids_tmp;
+	cudaMalloc((void**)&point_ids_tmp, point_count*sizeof(unsigned int));
+	reorder_by_index_point_ids<<<grid_size, block_size>>>(point_ids_tmp, points_h.point_ids, order, point_count);
+	cudaMemcpy(points_h.point_ids, point_ids_tmp, point_count*sizeof(unsigned int), cudaMemcpyDeviceToDevice);
+	cudaFree(point_ids_tmp);
+
+	TIME_stop("reorder points");
 }
 
 void reorder_vector(double* vector, int vector_length, uint64_t* order)

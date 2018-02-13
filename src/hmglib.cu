@@ -33,7 +33,7 @@ float hmglib_milliseconds;
 #define TIME_start {cudaEventCreate(&hmglib_start); cudaEventCreate(&hmglib_stop); cudaEventRecord(hmglib_start);}
 #define TIME_stop(a) {cudaEventRecord(hmglib_stop); cudaEventSynchronize(hmglib_stop); cudaEventElapsedTime(&hmglib_milliseconds, hmglib_start, hmglib_stop); printf("%s: Elapsed time: %lf ms\n", a, hmglib_milliseconds); }
 
-__global__ void init_point_set(struct point_set* points, double** coords_device, int dim, double* max_per_dim, double* min_per_dim, int size)
+__global__ void init_point_set(struct point_set* points, double** coords_device, unsigned int* point_ids_d, int dim, double* max_per_dim, double* min_per_dim, int size)
 {
         int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -44,6 +44,7 @@ __global__ void init_point_set(struct point_set* points, double** coords_device,
         points->coords = coords_device;
         points->max_per_dim = max_per_dim;
         points->min_per_dim = min_per_dim;
+	points->point_ids = point_ids_d;
 
         return;
 }
@@ -77,7 +78,10 @@ void init_h_matrix_data(struct h_matrix_data* data, int point_count[2], int dim,
 			cudaMalloc((void**)&(data->coords_d[i][d]), point_count[i]*sizeof(double));
 			checkCUDAError("cudaMalloc");
 			}
-	
+		
+		// allocating memory for point ids
+		cudaMalloc((void**)&(data->point_ids_d[i]), point_count[i]*sizeof(unsigned int));
+
 		// allocating memory for extremal values per dimension
 		cudaMalloc((void**)&(data->max_per_dim_d[i]), dim*sizeof(double));
 		cudaMalloc((void**)&(data->min_per_dim_d[i]), dim*sizeof(double));
@@ -92,7 +96,7 @@ void init_h_matrix_data(struct h_matrix_data* data, int point_count[2], int dim,
 	
 		// setting up data strcture for point set
 		cudaMalloc((void**)&(data->points_d[i]), sizeof(struct point_set));
-		init_point_set<<<1,1>>>(data->points_d[i], data->coords_device[i], dim, data->max_per_dim_d[i], data->min_per_dim_d[i], point_count[i]);
+		init_point_set<<<1,1>>>(data->points_d[i], data->coords_device[i], data->point_ids_d[i], dim, data->max_per_dim_d[i], data->min_per_dim_d[i], point_count[i]);
 	
 		// setting up data structure for morton code
 		cudaMalloc((void**)&(data->morton_d[i]), sizeof(struct morton_code));
@@ -265,6 +269,8 @@ void destroy_h_matrix_data(struct h_matrix_data* data)
 			cudaFree(data->coords_d[i][d]);
 		}
 		delete [] data->coords_d[i];
+	
+		cudaFree(data->point_ids_d[i]);
 
 		cudaFree(data->morton_d[i]);
 	
