@@ -59,6 +59,10 @@ __global__ void init_morton_code(struct morton_code* morton, uint64_t* code, int
         morton->dim = dim;
         morton->bits = bits;
         morton->size = size;
+	morton->max_values = 0;  // just as initialization
+	morton->min_values = 0;  // just as initialization
+
+	return;
 }
 
 void init_h_matrix_data(struct h_matrix_data* data, int point_count[2], int dim, int bits)
@@ -97,10 +101,13 @@ void init_h_matrix_data(struct h_matrix_data* data, int point_count[2], int dim,
 		// setting up data strcture for point set
 		cudaMalloc((void**)&(data->points_d[i]), sizeof(struct point_set));
 		init_point_set<<<1,1>>>(data->points_d[i], data->coords_device[i], data->point_ids_d[i], dim, data->max_per_dim_d[i], data->min_per_dim_d[i], point_count[i]);
+		cudaThreadSynchronize();
 	
 		// setting up data structure for morton code
 		cudaMalloc((void**)&(data->morton_d[i]), sizeof(struct morton_code));
 		init_morton_code<<<1,1>>>(data->morton_d[i], data->code_d[i], dim, bits, point_count[i]);
+		cudaThreadSynchronize();
+		checkCUDAError("init_morton_code");
 	}
 
 	// initialize fields for ACA precomputation
@@ -131,12 +138,14 @@ void setup_h_matrix(struct h_matrix_data* data)
 	get_morton_code(data->points_d[1], data->morton_d[1], grid_size, block_size);
 	checkCUDAError("get_morton_code");
 
-//	print_points_with_morton_codes(data->points_d, data->morton_d);
+//	print_points_with_morton_codes(data->points_d[0], data->morton_d[0]);
 
 
 	// find ordering of points following Z curve
 	cudaMalloc((void**)&(data->order[0]), data->point_count[0]*sizeof(uint64_t));
 	cudaMalloc((void**)&(data->order[1]), data->point_count[1]*sizeof(uint64_t));
+	checkCUDAError("cuda_malloc");
+
 	get_morton_ordering(data->points_d[0], data->morton_d[0], data->order[0]);
 	get_morton_ordering(data->points_d[1], data->morton_d[1], data->order[1]);
 
@@ -208,7 +217,7 @@ void precompute_aca(struct h_matrix_data* data)
 {
         TIME_start; 
         
-	precompute_aca_for_h_matrix_mvp(*(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, &(data->U), &(data->V), data->kernel_type);
+	precompute_aca_for_h_matrix_mvp(*(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, &(data->U), &(data->V), data->assem);
 
         TIME_stop("precompute_aca");
 }
@@ -222,11 +231,11 @@ void apply_h_matrix_mvp(double* x, double* y, struct h_matrix_data* data)
 
 	if (data->U==0) // if ACA has not been precomputed, recompute it every time
 	{
-		sequential_h_matrix_mvp(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->kernel_type, data->max_batched_dense_size, data->dense_batching_ratio, data->max_batched_aca_size, data->magma_queue, data->dense_work_size, data->aca_work_size, data->dense_batch_count, data->aca_batch_count);
+		sequential_h_matrix_mvp(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->assem, data->max_batched_dense_size, data->dense_batching_ratio, data->max_batched_aca_size, data->magma_queue, data->dense_work_size, data->aca_work_size, data->dense_batch_count, data->aca_batch_count);
 }
 	else // if ACA has been precomputed, use it
 	{
-		sequential_h_matrix_mvp_using_precomputation(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->U, data->V, data->kernel_type, data->max_batched_dense_size, data->dense_batching_ratio, data->magma_queue, data->dense_work_size, data->dense_batch_count);
+		sequential_h_matrix_mvp_using_precomputation(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->U, data->V, data->assem, data->max_batched_dense_size, data->dense_batching_ratio, data->magma_queue, data->dense_work_size, data->dense_batch_count);
 	}
 
 	reorder_back_vector(x, data->point_count[1], data->order[1]);
@@ -242,7 +251,7 @@ void apply_h_matrix_mvp_without_batching(double* x, double* y, struct h_matrix_d
         reorder_vector(x, data->point_count[1], data->order[1]);
 
         // ignoring precomputed data
-	sequential_h_matrix_mvp_without_batching(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->kernel_type);
+	sequential_h_matrix_mvp_without_batching(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->assem);
 
         reorder_back_vector(x, data->point_count[1], data->order[1]);
         reorder_back_vector(y, data->point_count[0], data->order[0]);
@@ -314,7 +323,7 @@ void apply_full_mvp(double* x, double* y, struct h_matrix_data* data)
 	// fill full matrix
 	int block_size1 = 512;
         
-	fill_matrix_fun(full_matrix, test_mat_vec_data, data->points_d[0], data->points_d[1], data->point_count[0], data->point_count[1], (data->point_count[0]*data->point_count[1] + (block_size1 - 1)) / block_size1, block_size1, data->kernel_type);
+	fill_matrix_fun(full_matrix, test_mat_vec_data, data->points_d[0], data->points_d[1], data->point_count[0], data->point_count[1], (data->point_count[0]*data->point_count[1] + (block_size1 - 1)) / block_size1, block_size1, data->assem);
         cudaThreadSynchronize();
         checkCUDAError("fill_matrix");
 	

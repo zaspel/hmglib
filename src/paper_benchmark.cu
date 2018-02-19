@@ -21,6 +21,7 @@
 #include <thrust/fill.h>
 #include "hmglib.h"
 #include <gsl/gsl_qrng.h>
+#include "kernel_system_assembler.h"
 
 void gen_halton_points(double** point_set, int dim, int point_count)
 {
@@ -105,7 +106,7 @@ int main( int argc, char* argv[])
 //	data.epsilon = pow(10.0, atoi(argv[5]));  <- removed
 
 	// set kernel
-	data.kernel_type = atoi(argv[6]);
+	int kernel_type = atoi(argv[6]);
 
         // set batching sizes
         data.max_batched_dense_size = atoi(argv[8]);
@@ -118,21 +119,40 @@ int main( int argc, char* argv[])
 	int use_batching;
 	use_batching = atoi(argv[11]);
 
-	// generate Halton sequence points (on CPU due to missing CURAND support for Halton sequences)
-	double** coords_1_h = new double*[dim];
-	double** coords_2_h = new double*[dim];
-	for (int d=0; d<dim; d++)
-	{
-		coords_1_h[d] = new double[point_count[0]];
-		coords_2_h[d] = new double[point_count[1]];
-	}
-	
 	// generate Halton points in in both point sets
 	gen_halton_points( data.coords_d[0], dim, point_count[0]);
 	gen_halton_points( data.coords_d[1], dim, point_count[1]);
 
 	// run setup of H matrix
 	setup_h_matrix(&data);
+
+
+
+        // setup kernel matrix assembler
+	if (kernel_type == 1)
+	{
+		double regularization = 0.0;
+	        struct gaussian_kernel_system_assembler assem;
+	        struct gaussian_kernel_system_assembler** assem_d_p;
+	        cudaMalloc((void***)&assem_d_p, sizeof(struct gaussian_kernel_system_assembler*));
+	        create_gaussian_kernel_system_assembler_object(assem_d_p, regularization);
+	        struct gaussian_kernel_system_assembler* assem_d;
+	        cudaMemcpy(&assem_d, assem_d_p, sizeof(struct gaussian_kernel_system_assembler*), cudaMemcpyDeviceToHost);
+	        data.assem = assem_d;
+	}
+	else if (kernel_type == 2)
+	{
+		double regularization = 0.0;
+	        struct matern_kernel_system_assembler assem;
+	        struct matern_kernel_system_assembler** assem_d_p;
+	        cudaMalloc((void***)&assem_d_p, sizeof(struct matern_kernel_system_assembler*));
+	        create_matern_kernel_system_assembler_object(assem_d_p, regularization);
+	        struct matern_kernel_system_assembler* assem_d;
+	        cudaMemcpy(&assem_d, assem_d_p, sizeof(struct matern_kernel_system_assembler*), cudaMemcpyDeviceToHost);
+	        data.assem = assem_d;
+	}
+
+
 
 	// precomputation of ACA
 	if (use_precomputing)
@@ -190,6 +210,20 @@ int main( int argc, char* argv[])
 	cudaFree(y_test);
 	cudaFree(x);
 	cudaFree(y);
+
+	/* currently commented out since compiler does not understand it
+        // cleanup of assembler
+	if (kernel_type == 1)
+	{
+		destroy_gaussian_kernel_system_assembler_object(assem_d_p);
+        	cudaFree(assem_d_p);
+	}
+	else if (kernel_type == 2)
+	{
+		destroy_matern_kernel_system_assembler_object(assem_d_p);
+        	cudaFree(assem_d_p);
+	}
+	*/
 
 	// cleanup of H matrix
 	destroy_h_matrix_data(&data);

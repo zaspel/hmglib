@@ -39,11 +39,11 @@ extern void checkCUDAError(const char* msg);
 
 extern void sort_mat_vec_data(struct work_item* mat_vec_data, int mat_vec_data_count);
 
-extern void apply_dense_matrix_for_current_work_item(double* x, double* y, struct work_item current_mat_vec_data, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, int kernel_type);
+extern void apply_dense_matrix_for_current_work_item(double* x, double* y, struct work_item current_mat_vec_data, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, struct system_assembler* assem);
 
 extern double compute_frobenius_norm_of_low_rank_matrix(double* U, double* V, int m1, int m2, int k, cublasStatus_t stat, cublasHandle_t handle);
 
-extern void apply_aca_for_current_work_item(double* x, double* y, struct work_item current_mat_vec_data, struct point_set* input_set1, struct point_set* input_set2,  cublasStatus_t stat, cublasHandle_t handle, double eta, double epsilon, int k, int kernel_type);
+extern void apply_aca_for_current_work_item(double* x, double* y, struct work_item current_mat_vec_data, struct point_set* input_set1, struct point_set* input_set2,  cublasStatus_t stat, cublasHandle_t handle, double eta, double epsilon, int k, struct system_assembler* assem);
 
 extern void compute_batched_norms(double* batched_norms, int* norm_count, double* x, int m_total, thrust::device_ptr<int> work_item_map_ptr, int block_size);
 
@@ -72,20 +72,20 @@ extern void compute_work_item_to_batch_map(int* work_item_to_batch_map, struct w
 
 extern void compute_m1_m2(int* m1, int* m2, struct work_item* mat_vec_data, int mat_vec_data_count);
 
-extern void fill_matrix_fun(double* matrix, struct work_item current_mat_vec_data, struct point_set* input_set1, struct point_set* input_set2, int m1, int m2, int grid_size, int block_size, int kernel_type);
+extern void fill_matrix_fun(double* matrix, struct work_item current_mat_vec_data, struct point_set* input_set1, struct point_set* input_set2, int m1, int m2, int grid_size, int block_size, struct system_assembler* assem);
 
 
 extern void create_maps_and_indices(int* m1, int* m2, int m1_total, int m2_total, int* point_map_offsets1, int* point_map_offsets2, int* point_map1, int* point_map2, int* work_item_map1, int* work_item_map2, int* work_item_to_batch_map, int* batch_count, struct work_item* mat_vec_data, int mat_vec_data_count);
 
 
 
-extern void compute_current_batched_v_r(double* v_r, double* U, double* V, int m1_total, int m2_total, struct work_item* mat_vec_data, int mat_vec_data_count, int* compute_v_r, int* i_r, int* point_map1, int* point_map2, int* point_map_offsets1, int* point_map_offsets2, int* work_item_map2, struct point_set* input_set1, struct point_set* input_set2, int* k_per_item, int r, int kernel_type);
+extern void compute_current_batched_v_r(double* v_r, double* U, double* V, int m1_total, int m2_total, struct work_item* mat_vec_data, int mat_vec_data_count, int* compute_v_r, int* i_r, int* point_map1, int* point_map2, int* point_map_offsets1, int* point_map_offsets2, int* work_item_map2, struct point_set* input_set1, struct point_set* input_set2, int* k_per_item, int r, struct system_assembler* assem);
 
 
-extern void compute_current_batched_u_r(double* u_r, double* v_r, double* U, double* V, int m1_total, int m2_total, struct work_item* mat_vec_data, int mat_vec_data_count, int* point_map1, int* point_map2, int* work_item_map1, int* work_item_map2, struct point_set* input_set1, struct point_set* input_set2, int* k_per_item, int* j_r_global, int* work_item_to_batch_map, int r, int kernel_type);
+extern void compute_current_batched_u_r(double* u_r, double* v_r, double* U, double* V, int m1_total, int m2_total, struct work_item* mat_vec_data, int mat_vec_data_count, int* point_map1, int* point_map2, int* work_item_map1, int* work_item_map2, struct point_set* input_set1, struct point_set* input_set2, int* k_per_item, int* j_r_global, int* work_item_to_batch_map, int r, struct system_assembler* assem);
 
 
-extern void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, double eta, double epsilon, int k, int kernel_type);
+extern void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, double eta, double epsilon, int k, struct system_assembler* assem);
 
 struct mat_vec_data_info
 {
@@ -103,13 +103,13 @@ extern int compute_current_dense_work_size(struct work_item* mat_vec_data_h, str
 
 extern int compute_current_aca_work_size(struct work_item* mat_vec_data_h, struct mat_vec_data_info* mat_vec_info, int max_batched_size, int current_work_item_index);
 
-extern void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, int kernel_type);
+extern void apply_batched_dense(double* x, double* y, struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, struct system_assembler* assem);
 
-extern void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* U, double* V, int kernel_type, int max_batched_dense_size, double dense_batching_ratio, magma_queue_t magma_queue, int* dense_work_size, int dense_batch_count);
+extern void sequential_h_matrix_mvp_using_precomputation(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* U, double* V, struct system_assembler* assem, int max_batched_dense_size, double dense_batching_ratio, magma_queue_t magma_queue, int* dense_work_size, int dense_batch_count);
 
-extern void precompute_aca_for_h_matrix_mvp(struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double** U, double** V, int kernel_type);
+extern void precompute_aca_for_h_matrix_mvp(struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double** U, double** V, struct system_assembler* assem);
 
-extern void sequential_h_matrix_mvp_without_batching(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, int kernel_type);
+extern void sequential_h_matrix_mvp_without_batching(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, struct system_assembler* assem);
 
-extern void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, int kernel_type, int max_batched_dense_size, double dense_batching_ratio, int max_batched_aca_size, magma_queue_t magma_queue, int* dense_work_size, int* aca_work_size, int dense_batch_count, int aca_batch_count);
+extern void sequential_h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, struct system_assembler* assem, int max_batched_dense_size, double dense_batching_ratio, int max_batched_aca_size, magma_queue_t magma_queue, int* dense_work_size, int* aca_work_size, int dense_batch_count, int aca_batch_count);
 #endif /* LINEAR_ALGEBRA_H_ */

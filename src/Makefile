@@ -22,10 +22,10 @@ MAGMA_DIR= /users/staff/dmi-dmi/zaspel/opt/magma
 # set directory for GSL installation
 GSL_DIR= /users/staff/dmi-dmi/zaspel/opt/gsl
 # set GPU architecture
-GPU_ARCH_SETTINGS=-gencode arch=compute_60,code=sm_60
+GPU_ARCH_SETTINGS=--gpu-architecture=sm_61
 
 
-CFLAGS = -Xcompiler="-fPIC -DADD_" -O3 $(GPU_ARCH_SETTINGS) -DADD_
+CFLAGS = -Xcompiler="-fPIC -DADD_" -g $(GPU_ARCH_SETTINGS) -DADD_
 GSL_LIB = -I$(GSL_DIR)/include -L$(GSL_DIR)/lib -lgsl -lgslcblas -lm
 
 MAGMA_LIB= -L$(MAGMA_DIR)/lib -lmagma -L$(OPENBLAS_DIR)/lib -lopenblas -lcusparse -lcudart -lcudadevrt
@@ -34,7 +34,7 @@ MAGMA_INC= -I$(MAGMA_DIR)/include
 all: hmglib_test paper_convergence_test paper_benchmark
 
 hmglib_test: hmglib_test.cu libhmglib.so
-	nvcc $(CFLAGS) $(MAGMA_INC) $(MAGMA_LIB) -L. -lhmglib -lcurand -lcublas hmglib_test.cu -o hmglib_test
+	nvcc $(CFLAGS) $(MAGMA_INC) $(MAGMA_LIB) -L. -lhmglib -lcurand -lcublas device_code.o hmglib_test.cu -o hmglib_test
 
 paper_convergence_test: paper_convergence_test.cu libhmglib.so
 	nvcc $(CFLAGS) $(GSL_LIB) $(MAGMA_INC) $(MAGMA_LIB) -L. -lhmglib -lcurand -lcublas paper_convergence_test.cu -o paper_convergence_test
@@ -46,16 +46,26 @@ morton.o: morton.cu morton.h
 	nvcc $(CFLAGS) -c morton.cu -o morton.o
 
 linear_algebra.o: linear_algebra.cu linear_algebra.h
-	nvcc $(CFLAGS) $(MAGMA_INC) -c linear_algebra.cu -o linear_algebra.o
+	nvcc $(CFLAGS) $(MAGMA_INC) -dc linear_algebra.cu -o linear_algebra.o
 
 tree.o: tree.cu tree.h
 	nvcc $(CFLAGS) -c tree.cu -o tree.o
 
 hmglib.o: hmglib.cu hmglib.h
-	nvcc $(CFLAGS) $(MAGMA_INC) -c hmglib.cu -o hmglib.o
+	nvcc $(CFLAGS) $(MAGMA_INC) -dc hmglib.cu -o hmglib.o
 
 helper.o: helper.cu helper.h
-	nvcc $(CFLAGS) -c helper.cu -o helper.o
+	nvcc $(CFLAGS) -G -dc helper.cu -o helper.o
 
-libhmglib.so: morton.o tree.o linear_algebra.o hmglib.o helper.o
-	nvcc $(CFLAGS) $(MAGMA_LIB) -o libhmglib.so --shared morton.o tree.o linear_algebra.o hmglib.o helper.o
+libhmglib.so: morton.o tree.o linear_algebra.o hmglib.o helper.o device_code.o kernel_system_assembler.o
+	nvcc $(CFLAGS) $(MAGMA_LIB) -o libhmglib.so --shared morton.o tree.o linear_algebra.o hmglib.o helper.o kernel_system_assembler.o device_code.o
+
+kernel_system_assembler.o: kernel_system_assembler.h system_assembler.h kernel_system_assembler.cu
+	nvcc $(CFLAGS) $(MAGMA_INC) -dc kernel_system_assembler.cu -o kernel_system_assembler.o
+
+device_code.o: kernel_system_assembler.o linear_algebra.o hmglib.o helper.o
+	nvcc $(CFLAGS) $(MAGMA_LIB) -dlink linear_algebra.o hmglib.o helper.o kernel_system_assembler.o -o device_code.o
+
+
+clean:
+	rm *.o *.so

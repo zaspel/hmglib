@@ -117,10 +117,12 @@ void compute_minmax(struct point_set* points_d)
 {
 	struct point_set points_h;
 	cudaMemcpy(&points_h, points_d, sizeof(struct point_set), cudaMemcpyDeviceToHost);
+	checkCUDAError("cudaMemcpy");
 	int dim = points_h.dim;
 
 	double** coords_d = new double*[dim];
 	cudaMemcpy(coords_d, points_h.coords, dim*sizeof(double*), cudaMemcpyDeviceToHost);
+	checkCUDAError("cudaMemcpy");
 
 	// compute extremal values for the point set
 	double* min_per_dim_h = new double[dim];
@@ -139,9 +141,11 @@ void get_morton_ordering(struct point_set* points_d, struct morton_code* morton_
 {
 	struct point_set points_h;
 	cudaMemcpy(&points_h, points_d, sizeof(struct point_set), cudaMemcpyDeviceToHost);
+	checkCUDAError("cudaMemcpy");
 	struct morton_code morton_h;
 	cudaMemcpy(&morton_h, morton_d, sizeof(struct morton_code), cudaMemcpyDeviceToHost);
-	
+	checkCUDAError("cudaMemcpy");
+
 	int point_count = points_h.size;
 
 	thrust::device_ptr<uint64_t> morton_codes_ptr = thrust::device_pointer_cast(morton_h.code);
@@ -151,9 +155,10 @@ void get_morton_ordering(struct point_set* points_d, struct morton_code* morton_
 	int block_size = 512;
 	int grid_size = (point_count + (block_size - 1)) / block_size;
 
-	
 	// generate index array initially set to 1:point_count	
 	fill_with_indices<<<grid_size, block_size>>>(order, point_count);
+	cudaThreadSynchronize();
+	checkCUDAError("fill_with_indices");
 
 	// find ordering of points following Z curve
 	TIME_start;
@@ -314,6 +319,7 @@ void reorder_point_set(struct point_set* points_d, uint64_t* order)
 	// sort point indices
 	unsigned int* point_ids_tmp;
 	cudaMalloc((void**)&point_ids_tmp, point_count*sizeof(unsigned int));
+	
 	reorder_by_index_point_ids<<<grid_size, block_size>>>(point_ids_tmp, points_h.point_ids, order, point_count);
 	cudaMemcpy(points_h.point_ids, point_ids_tmp, point_count*sizeof(unsigned int), cudaMemcpyDeviceToDevice);
 	cudaFree(point_ids_tmp);

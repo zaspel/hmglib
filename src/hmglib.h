@@ -24,6 +24,7 @@
 #include "linear_algebra.h"
 #include "magma_v2.h"
 #include "magma_lapack.h"
+#include "system_assembler.h"
 
 struct h_matrix_data
 {
@@ -78,7 +79,7 @@ struct h_matrix_data
 
 	int point_count[2];
 
-	int kernel_type;
+	struct system_assembler* assem;
 
 	int max_batched_dense_size;
 	int max_batched_aca_size;

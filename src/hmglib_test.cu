@@ -20,6 +20,7 @@
 #include <thrust/inner_product.h>
 #include <thrust/fill.h>
 #include "hmglib.h"
+#include "kernel_system_assembler.h"
 
 int main( int argc, char* argv[])
 {
@@ -59,9 +60,6 @@ int main( int argc, char* argv[])
 	// set threshold for ACA (currently not use)
 	data.epsilon = pow(10.0, atoi(argv[5]));
 
-	// set kernel
-	data.kernel_type = KT_GAUSSIAN;
-
         // set batching sizes
         data.max_batched_dense_size = 8192;
         data.max_batched_aca_size = 65536;
@@ -79,6 +77,17 @@ int main( int argc, char* argv[])
 
 	// run setup of H matrix
 	setup_h_matrix(&data);
+
+
+        // setup kernel matrix assembler
+	double regularization = 0.0;
+	struct gaussian_kernel_system_assembler assem;
+        struct gaussian_kernel_system_assembler** assem_d_p;
+        cudaMalloc((void***)&assem_d_p, sizeof(struct gaussian_kernel_system_assembler*));
+        create_gaussian_kernel_system_assembler_object(assem_d_p, regularization);
+        struct gaussian_kernel_system_assembler* assem_d;
+        cudaMemcpy(&assem_d, assem_d_p, sizeof(struct gaussian_kernel_system_assembler*), cudaMemcpyDeviceToHost);
+	data.assem = assem_d;
 
 	// precomputation of ACA
 	precompute_aca(&data);
@@ -123,6 +132,10 @@ int main( int argc, char* argv[])
 	cudaFree(y_test);
 	cudaFree(x);
 	cudaFree(y);
+
+	// cleanup of assembler
+	destroy_gaussian_kernel_system_assembler_object(assem_d_p);;
+	cudaFree(assem_d_p);
 
 	// cleanup of H matrix
 	destroy_h_matrix_data(&data);
