@@ -88,6 +88,7 @@ struct h_matrix_data
 
 	double* U;
 	double* V;
+	double* dA;
 
 	magma_queue_t magma_queue;
 

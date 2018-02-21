@@ -110,9 +110,10 @@ void init_h_matrix_data(struct h_matrix_data* data, int point_count[2], int dim,
 		checkCUDAError("init_morton_code");
 	}
 
-	// initialize fields for ACA precomputation
+	// initialize fields for precomputation
 	data->U = 0;
 	data->V = 0;	
+	data->dA = 0;
 
 	// initialize magma
         magma_init();
@@ -231,11 +232,11 @@ void apply_h_matrix_mvp(double* x, double* y, struct h_matrix_data* data)
 
 	if (data->U==0) // if ACA has not been precomputed, recompute it every time
 	{
-		sequential_h_matrix_mvp(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->assem, data->max_batched_dense_size, data->dense_batching_ratio, data->max_batched_aca_size, data->magma_queue, data->dense_work_size, data->aca_work_size, data->dense_batch_count, data->aca_batch_count);
+		h_matrix_mvp(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->dA, data->U, data->V, data->assem, data->max_batched_dense_size, data->dense_batching_ratio, data->max_batched_aca_size, data->magma_queue, data->dense_work_size, data->aca_work_size, data->dense_batch_count, data->aca_batch_count, false, false);
 }
 	else // if ACA has been precomputed, use it
 	{
-		sequential_h_matrix_mvp_using_precomputation(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->U, data->V, data->assem, data->max_batched_dense_size, data->dense_batching_ratio, data->magma_queue, data->dense_work_size, data->dense_batch_count);
+		h_matrix_mvp(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->dA, data->U, data->V, data->assem, data->max_batched_dense_size, data->dense_batching_ratio, data->max_batched_aca_size, data->magma_queue, data->dense_work_size, data->aca_work_size, data->dense_batch_count, data->aca_batch_count, true, false);
 	}
 
 	reorder_back_vector(x, data->point_count[1], data->order[1]);
