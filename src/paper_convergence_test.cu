@@ -149,6 +149,7 @@ int main( int argc, char* argv[])
 
 	// precomputation of ACA
 	precompute_aca(&data);
+//	precompute_dense(&data);
 
 	// allocate vectors for H matrix vs. full matrix test
 	double* x;

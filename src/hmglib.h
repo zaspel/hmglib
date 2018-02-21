@@ -110,6 +110,8 @@ extern void destroy_h_matrix_data(struct h_matrix_data* data);
 
 extern void precompute_aca(struct h_matrix_data* data);
 
+extern void precompute_dense(struct h_matrix_data* data);
+
 extern void apply_full_mvp(double* x, double* y, struct h_matrix_data* data);
 
 extern void set_gaussian_kernel_rhs(double* b, struct h_matrix_data* data);

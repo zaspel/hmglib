@@ -224,20 +224,38 @@ void precompute_aca(struct h_matrix_data* data)
 }
 
 
+void precompute_dense(struct h_matrix_data* data)
+{
+	TIME_start;
+
+	if ((data->dense_batch_count > 2) || ((data->dense_batch_count == 2) && (data->dense_work_size[1]>0)))
+	{
+		printf("Dense block does not fit into memory provided by 'max_batched_dense_size'. Therefore, precomputing the dense blocks is impossible. Exiting ...\n");
+		exit(1);
+	}
+
+	cudaMalloc((void**)&(data->dA), sizeof(double)*data->max_batched_dense_size);
+
+	cublasStatus_t stat;
+	cublasHandle_t handle;
+	stat = cublasCreate(&handle);
+
+	precompute_batched_dense_magma(*(data->mat_vec_data), data->dense_work_size[0], data->points_d[0], data->points_d[1], stat, handle,data->assem, &(data->magma_queue), data->dA);
+
+	TIME_stop("precompute_dense");	
+}
+
+
 void apply_h_matrix_mvp(double* x, double* y, struct h_matrix_data* data)
 {
 	TIME_start;
 
 	reorder_vector(x, data->point_count[1], data->order[1]);	
 
-	if (data->U==0) // if ACA has not been precomputed, recompute it every time
-	{
-		h_matrix_mvp(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->dA, data->U, data->V, data->assem, data->max_batched_dense_size, data->dense_batching_ratio, data->max_batched_aca_size, data->magma_queue, data->dense_work_size, data->aca_work_size, data->dense_batch_count, data->aca_batch_count, false, false);
-}
-	else // if ACA has been precomputed, use it
-	{
-		h_matrix_mvp(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->dA, data->U, data->V, data->assem, data->max_batched_dense_size, data->dense_batching_ratio, data->max_batched_aca_size, data->magma_queue, data->dense_work_size, data->aca_work_size, data->dense_batch_count, data->aca_batch_count, true, false);
-	}
+	bool use_precomputed_aca = data->U==0 ? false : true;
+	bool use_precomputed_dense = data->dA==0 ? false : true;
+	
+	h_matrix_mvp(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->dA, data->U, data->V, data->assem, data->max_batched_dense_size, data->dense_batching_ratio, data->max_batched_aca_size, data->magma_queue, data->dense_work_size, data->aca_work_size, data->dense_batch_count, data->aca_batch_count, use_precomputed_aca, use_precomputed_dense);
 
 	reorder_back_vector(x, data->point_count[1], data->order[1]);
 	reorder_back_vector(y, data->point_count[0], data->order[0]);
@@ -292,11 +310,13 @@ void destroy_h_matrix_data(struct h_matrix_data* data)
 		cudaFree(data->min_per_dim_d[i]);
 	}
 
-	// in case ACA precomputation was done, delete precomputed data
+	// in case ACA / dense precomputation was done, delete precomputed data
 	if (data->U!=0)
 		cudaFree(data->U);
 	if (data->V!=0)
 		cudaFree(data->V);
+	if (data->dA!=0)
+		cudaFree(data->dA);
 
 	delete [] data->aca_work_size;
 	delete [] data->dense_work_size;

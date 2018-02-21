@@ -2753,13 +2753,13 @@ void apply_batched_dense_magma(double* x, double* y, struct work_item* mat_vec_d
 	if (!use_precomputed_data)
 	{
 	//	TIME_ssstop("FILLING.1")
-		TIME_ssstart;
+//		TIME_ssstart;
 	
 		fill_batched_matrix_magma<<<(m1_total*m2_max + (block_size - 1)) / block_size, block_size>>>(hA, mat_vec_data, input_set1, input_set2, m1, m2, m1_total, point_map1, work_item_map1, point_map_offsets1, point_map_offsets2, m2_max, assem );
 		cudaThreadSynchronize();
 		checkCUDAError("fill_batched_matrix");
 	
-		TIME_ssstop("FILLING.2")
+//		TIME_ssstop("FILLING.2")
 	}
 //	TIME_ssstart;
 
@@ -2914,7 +2914,7 @@ void apply_batched_dense_magma(double* x, double* y, struct work_item* mat_vec_d
 }
 
 
-void precompute_batched_dense_magma(double* x, double* y, struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, struct system_assembler* assem, magma_queue_t* queue, double* hA)
+void precompute_batched_dense_magma(struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, struct system_assembler* assem, magma_queue_t* queue, double* hA)
 {
 	int block_size = MATRIX_ENTRY_BLOCK_SIZE;
 
@@ -3048,13 +3048,13 @@ void precompute_batched_dense_magma(double* x, double* y, struct work_item* mat_
 //	TIME_ssstart;
 
 //	TIME_ssstop("FILLING.1")
-	TIME_ssstart;
+//	TIME_ssstart;
 
 	fill_batched_matrix_magma<<<(m1_total*m2_max + (block_size - 1)) / block_size, block_size>>>(hA, mat_vec_data, input_set1, input_set2, m1, m2, m1_total, point_map1, work_item_map1, point_map_offsets1, point_map_offsets2, m2_max, assem );
 	cudaThreadSynchronize();
 	checkCUDAError("fill_batched_matrix");
 
-	TIME_ssstop("FILLING.2")
+//	TIME_ssstop("FILLING.2")
 //	TIME_ssstart;
 
 

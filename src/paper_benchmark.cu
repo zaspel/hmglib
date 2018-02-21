@@ -59,9 +59,9 @@ void gen_halton_points(double** point_set, int dim, int point_count)
 
 int main( int argc, char* argv[])
 {
-	if (argc!=12)
+	if (argc!=13)
 	{
-		printf("%s <Nx> <Ny> <k> <c_leaf> <eta> <kernel_type> <dim> <dense_batch_size> <aca_batch_size> <use_precomputing> <use_batching>\n", argv[0]);
+		printf("%s <Nx> <Ny> <k> <c_leaf> <eta> <kernel_type> <dim> <dense_batch_size> <aca_batch_size> <use_aca_precomputing> <use_dense_precomputing> <use_batching>\n", argv[0]);
 		return 0;
 	}
 
@@ -113,11 +113,14 @@ int main( int argc, char* argv[])
 //	data.dense_batching_ratio = atof(argv[10]);   <- no longer needed
         data.max_batched_aca_size = atoi(argv[9]);
 
-	int use_precomputing;
-	use_precomputing = atoi(argv[10]);
+	int use_aca_precomputing;
+	use_aca_precomputing = atoi(argv[10]);
 
+	int use_dense_precomputing;
+	use_dense_precomputing = atoi(argv[11]);
+	
 	int use_batching;
-	use_batching = atoi(argv[11]);
+	use_batching = atoi(argv[12]);
 
 	// generate Halton points in in both point sets
 	gen_halton_points( data.coords_d[0], dim, point_count[0]);
@@ -154,9 +157,11 @@ int main( int argc, char* argv[])
 
 
 
-	// precomputation of ACA
-	if (use_precomputing)
+	// precomputation
+	if (use_aca_precomputing)
 		precompute_aca(&data);
+	if (use_dense_precomputing)
+		precompute_dense(&data);
 
 	// allocate vectors for H matrix vs. full matrix test
 	double* x;
