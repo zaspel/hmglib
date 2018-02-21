@@ -321,7 +321,7 @@ void apply_full_mvp(double* x, double* y, struct h_matrix_data* data)
         checkCUDAError("cudaMalloc");
         
 	// fill full matrix
-	int block_size1 = 512;
+	int block_size1 = MATRIX_ENTRY_BLOCK_SIZE;
         
 	fill_matrix_fun(full_matrix, test_mat_vec_data, data->points_d[0], data->points_d[1], data->point_count[0], data->point_count[1], (data->point_count[0]*data->point_count[1] + (block_size1 - 1)) / block_size1, block_size1, data->assem);
         cudaThreadSynchronize();

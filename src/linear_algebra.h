@@ -19,6 +19,9 @@
 #ifndef LINEAR_ALGEBRA_H_
 #define LINEAR_ALGEBRA_H_
 
+
+#define MATRIX_ENTRY_BLOCK_SIZE 512
+
 #include "morton.h"
 #include "tree.h"
 #include <thrust/device_ptr.h>
