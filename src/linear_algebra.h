@@ -54,7 +54,7 @@ extern void compute_batched_norms_with_keys_output(double* batched_norms, int* k
 
 extern void compute_batched_products_for_kxk_matrices(double* batched_products, int* products_count, double* C, double* D, int m_total, thrust::device_ptr<int> work_item_map_ptr, int block_size, bool* stop_aca_as_soon_as_possible);
 
-extern void batched_low_rank_mvp(double* x, double* y, double* U, double* V, int m1_total, int m2_total, int* m1_h, int* m2_h, int mat_vec_data_count, int batch_count, int k, int* k_per_item, cudaStream_t *streams, cublasStatus_t stat, cublasHandle_t handle , int* point_map_offsets1_h, int* point_map_offsets2_h, int* point_map1, int* point_map2, int* work_item_map1 );
+extern void batched_low_rank_mvp(double* x, double* y, double* U, double* V, int m1_total, int m2_total, int* m1_h, int* m2_h, int mat_vec_data_count, int batch_count, int k, int* k_per_item, cublasStatus_t stat, cublasHandle_t handle , int* point_map_offsets1_h, int* point_map_offsets2_h, int* point_map1, int* point_map2, int* work_item_map1 );
 
 extern bool do_stop_based_on_batched_frobenius_norm(double* U, double* V, double* u_r, double* v_r, int m1_total, int m2_total, int* point_map_offsets1_h, int* point_map_offsets2_h, bool* stop_aca_as_soon_as_possible, bool* stop_aca_as_soon_as_possible_h, int* work_item_map1, int* work_item_map2, int batch_count, int r, int mat_vec_data_count, int* m1_h, int* m2_h, double eta, double epsilon, cudaStream_t *streams, cublasStatus_t stat, cublasHandle_t handle );
 
@@ -82,7 +82,7 @@ extern void create_maps_and_indices(int* m1, int* m2, int m1_total, int m2_total
 
 
 
-extern void compute_current_batched_v_r(double* v_r, double* U, double* V, int m1_total, int m2_total, struct work_item* mat_vec_data, int mat_vec_data_count, int* compute_v_r, int* i_r, int* point_map1, int* point_map2, int* point_map_offsets1, int* point_map_offsets2, int* work_item_map2, struct point_set* input_set1, struct point_set* input_set2, int* k_per_item, int r, struct system_assembler* assem);
+extern void compute_current_batched_v_r(double* v_r, double* U, double* V, int m1_total, int m2_total, struct work_item* mat_vec_data, int mat_vec_data_count, int* compute_v_r, int* i_r, int* point_map1, int* point_map2, int* point_map_offsets1, int* point_map_offsets2, int* work_item_map2, struct point_set* input_set1, struct point_set* input_set2, int* k_per_item, int r, struct system_assembler* assem, int k_max);
 
 
 extern void compute_current_batched_u_r(double* u_r, double* v_r, double* U, double* V, int m1_total, int m2_total, struct work_item* mat_vec_data, int mat_vec_data_count, int* point_map1, int* point_map2, int* work_item_map1, int* work_item_map2, struct point_set* input_set1, struct point_set* input_set2, int* k_per_item, int* j_r_global, int* work_item_to_batch_map, int r, struct system_assembler* assem);

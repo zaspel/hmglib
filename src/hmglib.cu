@@ -217,8 +217,9 @@ void setup_h_matrix(struct h_matrix_data* data)
 void precompute_aca(struct h_matrix_data* data)
 {
         TIME_start; 
-        
-	precompute_aca_for_h_matrix_mvp(*(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, &(data->U), &(data->V), data->assem);
+
+	if (data->aca_work_size[0]>0)
+		precompute_aca_for_h_matrix_mvp(*(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, &(data->U), &(data->V), data->assem);
 
         TIME_stop("precompute_aca");
 }
@@ -234,6 +235,12 @@ void precompute_dense(struct h_matrix_data* data)
 		exit(1);
 	}
 
+//	size_t free_mem;
+//	size_t total_mem;
+//	cudaMemGetInfo(&free_mem, &total_mem);
+//	printf("Memory free: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+//	printf("Allocating %d MB of memory for precomputing.\n",(int)(sizeof(double)*data->max_batched_dense_size/1024/1024));
+	
 	cudaMalloc((void**)&(data->dA), sizeof(double)*data->max_batched_dense_size);
 
 	cublasStatus_t stat;
@@ -243,6 +250,10 @@ void precompute_dense(struct h_matrix_data* data)
 	precompute_batched_dense_magma(*(data->mat_vec_data), data->dense_work_size[0], data->points_d[0], data->points_d[1], stat, handle,data->assem, &(data->magma_queue), data->dA);
 
 	TIME_stop("precompute_dense");	
+
+//	cudaMemGetInfo(&free_mem, &total_mem);
+//	printf("Memory free: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+
 }
 
 

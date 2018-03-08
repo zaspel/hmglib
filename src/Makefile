@@ -25,7 +25,7 @@ GSL_DIR= /users/staff/dmi-dmi/zaspel/opt/gsl
 GPU_ARCH_SETTINGS=--gpu-architecture=sm_61
 
 
-CFLAGS = -Xcompiler="-fPIC -DADD_" -g $(GPU_ARCH_SETTINGS) -DADD_
+CFLAGS = -Xcompiler="-fPIC -DADD_" -O3 $(GPU_ARCH_SETTINGS) -DADD_
 GSL_LIB = -I$(GSL_DIR)/include -L$(GSL_DIR)/lib -lgsl -lgslcblas -lm
 
 MAGMA_LIB= -L$(MAGMA_DIR)/lib -lmagma -L$(OPENBLAS_DIR)/lib -lopenblas -lcusparse -lcudart -lcudadevrt
