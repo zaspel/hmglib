@@ -230,22 +230,34 @@ __global__ void count_for_new_level(struct work_item *current_level_data, struct
 	{
 		bool is_admissible = bounding_box_admissibility(work, input_set1, input_set2, eta);
 
-		if (is_admissible)
+		int level_1 = round(log((double)(work.set1_u-work.set1_l+1))/log(2.0));
+		int level_2 = round(log((double)(work.set2_u-work.set2_l+1))/log(2.0));
+		
+		if (level_1==level_2)
 		{
-			// ACA
-			new_child_counts[idx] = 0;
-			new_mat_vec_counts[idx] = 1;
-		}
-		else if (at_least_one_block_smaller_than_threshold(work, c_leaf) || (current_level+1)>=max_level )
-		{
-			// dense MVP
-			new_child_counts[idx] = 0;
-			new_mat_vec_counts[idx] = 1;
+			if (is_admissible)
+			{
+				// ACA
+				new_child_counts[idx] = 0;
+				new_mat_vec_counts[idx] = 1;
+				}
+			else if (at_least_one_block_smaller_than_threshold(work, c_leaf) || (current_level+1)>=max_level )
+			{
+				// dense MVP
+				new_child_counts[idx] = 0;
+				new_mat_vec_counts[idx] = 1;
+			}
+			else
+			{
+				// create children
+				new_child_counts[idx] = 4;
+				new_mat_vec_counts[idx] = 0;
+			}
 		}
 		else
 		{
-			// create children
-			new_child_counts[idx] = 4;
+			// split only one block
+			new_child_counts[idx] = 2;
 			new_mat_vec_counts[idx] = 0;
 		}
 	}
@@ -316,7 +328,7 @@ __global__ void generate_new_level(struct work_item *current_level_data, struct 
 
 	struct work_item work = current_level_data[idx];
 
-	if (child_counts[idx]>0)
+	if (child_counts[idx]==4)
 	{
 		int offset = new_child_offsets[idx];
 
@@ -351,6 +363,57 @@ __global__ void generate_new_level(struct work_item *current_level_data, struct 
 		next_level_data[offset+1]=child12;
 		next_level_data[offset+2]=child21;
 		next_level_data[offset+3]=child22;
+	}
+	else if (child_counts[idx]==2)
+	{
+                int level_1 = round(log((double)(work.set1_u-work.set1_l+1))/log(2.0));
+                int level_2 = round(log((double)(work.set2_u-work.set2_l+1))/log(2.0));
+
+		if (level_1>level_2)
+		{
+			int offset = new_child_offsets[idx];
+			// create children
+			struct work_item child11, child21;
+
+			int split_set1 = findSplit( input_set1_codes, work.set1_l, work.set1_u);
+
+	                child11.set1_l = work.set1_l;
+	                child11.set1_u = split_set1;
+         	       	child11.set2_l = work.set2_l;
+                	child11.set2_u = work.set2_u;
+
+        	        child21.set1_l = split_set1+1;
+                	child21.set1_u = work.set1_u;
+	                child21.set2_l = work.set2_l;
+        	        child21.set2_u = work.set2_u;
+
+			// insert new children in work queue
+			next_level_data[offset]=child11;
+			next_level_data[offset+1]=child21;
+		}
+		else
+		{
+	                int offset = new_child_offsets[idx];
+
+	                // create children
+	                struct work_item child11, child12;
+	
+	                int split_set2 = findSplit( input_set2_codes, work.set2_l, work.set2_u);
+	
+	                child11.set1_l = work.set1_l;
+	                child11.set1_u = work.set1_u;
+	                child11.set2_l = work.set2_l;
+	                child11.set2_u = split_set2;
+	
+		        child12.set1_l = work.set1_l;
+	                child12.set1_u = work.set1_u;
+        	        child12.set2_l = split_set2+1;
+	                child12.set2_u = work.set2_u;
+	
+	                // insert new children in work queue
+        	        next_level_data[offset]=child11;
+        	        next_level_data[offset+1]=child12;
+		}
 	}
 	else
 	{
