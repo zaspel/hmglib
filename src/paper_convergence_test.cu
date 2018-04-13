@@ -104,6 +104,10 @@ int main( int argc, char* argv[])
 	// set rank in ACA
 	data.k = atoi(argv[3]);
 
+	// set root level of clusters
+	data.root_level_set_1 = 0;
+	data.root_level_set_2 = 0;
+
 	// set threshold for ACA (currently not use)
 	data.epsilon = pow(10.0, atoi(argv[5]));
 

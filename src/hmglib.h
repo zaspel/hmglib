@@ -96,6 +96,9 @@ struct h_matrix_data
 	int* aca_work_size;
 	int dense_batch_count;
 	int aca_batch_count;
+
+	char root_level_set_1;
+	char root_level_set_2;
 };
 
 extern void init_h_matrix_data(struct h_matrix_data* data, int point_count[2], int dim, int bits);

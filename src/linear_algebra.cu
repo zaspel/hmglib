@@ -48,9 +48,16 @@ cudaError_t err = cudaGetLastError();
 
 cudaEvent_t ssstart, ssstop;
 float mmmilliseconds;
+cudaEvent_t sssstart, sssstop;
+float mmmmilliseconds;
 
-#define TIME_ssstart  {cudaEventCreate(&ssstart); cudaEventCreate(&ssstop); cudaEventRecord(ssstart);}
-#define TIME_ssstop(a)  {cudaEventRecord(ssstop); cudaEventSynchronize(ssstop); cudaEventElapsedTime(&mmmilliseconds, ssstart, ssstop); printf("%s: Elapsed time: %lf ms\n", a, mmmilliseconds); }
+
+
+#define TIME_ssstart  // {cudaEventCreate(&ssstart); cudaEventCreate(&ssstop); cudaEventRecord(ssstart);}
+#define TIME_ssstop(a)  // {cudaEventRecord(ssstop); cudaEventSynchronize(ssstop); cudaEventElapsedTime(&mmmilliseconds, ssstart, ssstop); printf("%s: Elapsed time: %lf ms\n", a, mmmilliseconds); }
+
+#define TIME_sssstart  // {cudaEventCreate(&sssstart); cudaEventCreate(&sssstop); cudaEventRecord(sssstart);}
+#define TIME_sssstop(a)  // {cudaEventRecord(sssstop); cudaEventSynchronize(sssstop); cudaEventElapsedTime(&mmmmilliseconds, sssstart, sssstop); printf("%s: Elapsed time: %lf ms\n", a, mmmmilliseconds); }
 
 
 struct mat_vec_type_smaller
@@ -908,7 +915,7 @@ __global__ void batched_scaled_substraction_for_v_r(double* v_r, int* point_map2
 	}
 }
 
-__global__ void batched_fill_kernel_vector_and_scaled_substraction_for_v_r(double* v_r, int* point_map2, int* point_map1, int* point_map_offsets1, int* work_item_map2, int* i_r, int* compute_v_r, struct point_set* input_set2, struct point_set* input_set1, int m2_total, int m1_total, double* V, double* U, int r, int* k_per_item, struct system_assembler* assem)
+__global__ void batched_fill_kernel_vector_and_scaled_substraction_for_v_r(double* v_r, int* point_map2, int* point_map1, int* point_map_offsets1, int* work_item_map2, int* i_r, bool* search_for_new_v_r, struct point_set* input_set2, struct point_set* input_set1, int m2_total, int m1_total, double* V, double* U, int r, int* k_per_item, struct system_assembler* assem)
 {
 	//    v_tilde_r = kernel(input_set1(i_r,:), input_set2);
 
@@ -925,8 +932,8 @@ __global__ void batched_fill_kernel_vector_and_scaled_substraction_for_v_r(doubl
 
 	int work_item_index = work_item_map2[idx];
 
-	// this work item has already been successfully computed (-> i_r won't be accessed after computation is done) 
-	if (compute_v_r[work_item_index]==0)
+	// stopping if I shall not search for a new v_r
+	if (!search_for_new_v_r[work_item_index])
 		return;
 
 	int i_global = point_map1[point_map_offsets1[work_item_index]]+i_r[work_item_index];
@@ -935,7 +942,7 @@ __global__ void batched_fill_kernel_vector_and_scaled_substraction_for_v_r(doubl
 	double val = assem->get_matrix_entry(i_global, j_global, input_set1, input_set2);
 
 
-	for (int l=0; (l<r)&&(l<k_per_item[work_item_index]); l++)
+	for (int l=0; (l<r)/*&&(l<k_per_item[work_item_index])*/; l++)  // commented out stuff that should not be necessary after checking for if (compute_v_r[work_item_index]==0)
 	{
 		//		cudaMemcpy(&scaling, &U[l*m1+i_r], sizeof(double), cudaMemcpyDeviceToHost);
 		//		checkCUDAError("cudaMemcpy1");
@@ -953,7 +960,7 @@ __global__ void batched_fill_kernel_vector_and_scaled_substraction_for_v_r(doubl
 
 
 
-__global__ void batched_scaling_of_v_r(double* v_r, int* work_item_to_batch_map, int* work_item_map2, int* k_per_item, int r, int* j_r, int m2_total)
+__global__ void batched_scaling_of_v_r(double* v_r, int* work_item_to_batch_map, int* work_item_map2, int* k_per_item, int r, int* j_r, int m2_total, bool* stop_full_aca_for_batch)
 {
 	int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -962,8 +969,11 @@ __global__ void batched_scaling_of_v_r(double* v_r, int* work_item_to_batch_map,
 
 	int work_item_index = work_item_map2[idx];
 
-	if (r>=k_per_item[work_item_index])
+	if (stop_full_aca_for_batch[work_item_index])
 		return;
+
+//	if (r>=k_per_item[work_item_index])
+//		return;
 
 	// not necessary => is always valid by construction
 	// if (work_item_index==-1)
@@ -1078,7 +1088,7 @@ __global__ void batched_scaled_substraction_for_u_r(double* u_r, int* point_map1
 
 
 
-__global__ void batched_fill_kernel_vector_and_scaled_substraction_for_u_r(double* u_r, int* point_map1, int* point_map2, int* work_item_to_batch_map, int* work_item_map1, int* k_per_item, int r, int* j_r_global, struct point_set* input_set1, struct point_set* input_set2, int m1_total, int m2_total, double* U, double* V, struct system_assembler* assem)
+__global__ void batched_fill_kernel_vector_and_scaled_substraction_for_u_r(double* u_r, int* point_map1, int* point_map2, int* work_item_to_batch_map, int* work_item_map1, int* k_per_item, int r, int* j_r_global, struct point_set* input_set1, struct point_set* input_set2, int m1_total, int m2_total, double* U, double* V, struct system_assembler* assem, bool* stop_full_aca_for_batch)
 {
 	//    // u_r = kernel(input_set1(:,:),input_set2(j_r,:));
 	//	fill_kernel_vector<<<(m1 + (block_size - 1)) / block_size, block_size>>>(u_r, current_mat_vec_data.set1_l, current_mat_vec_data.set1_u, current_mat_vec_data.set2_l+j_r, input_set1, input_set2);
@@ -1098,7 +1108,7 @@ __global__ void batched_fill_kernel_vector_and_scaled_substraction_for_u_r(doubl
 
 	int work_item_index = work_item_map1[idx];
 
-	if (r>=k_per_item[work_item_index])
+	if (stop_full_aca_for_batch[work_item_index])
 		return;
 
 	// oh my gosh, the following is extremely expensive!
@@ -1165,8 +1175,8 @@ __global__ void add_batched_local_results_to_full_vector(double* y, double* y_lo
 
 	double val = y_local[idx];
 
-//	myAtomicAdd(&y[point_map1[idx]], val);
-	atomicAdd(&y[point_map1[idx]], val);
+	myAtomicAdd(&y[point_map1[idx]], val);
+//	atomicAdd(&y[point_map1[idx]], val);
 
 }
 
@@ -1200,7 +1210,7 @@ __global__ void get_work_item_point_set_limits_for_given_type(int* l, int* u, in
 }
 
 // if a work_item has finished, set respective compute_v_r entry to 0
-__global__ void update_ir(int* i_r, int* compute_v_r, int mat_vec_data_count, int* keys_output, double* values_output, int output_set_counts, int k_max)
+__global__ void update_ir(int* i_r, bool* search_for_new_v_r, int mat_vec_data_count, int* keys_output, double* values_output, int output_set_counts, int* m1)
 {
 	int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -1209,20 +1219,17 @@ __global__ void update_ir(int* i_r, int* compute_v_r, int mat_vec_data_count, in
 
 	int work_item_index = keys_output[idx];
 
-	if (compute_v_r[work_item_index]==0)
+	if (!search_for_new_v_r[work_item_index])
 		return;
 
-	if (fabs(values_output[idx])>=1.0e-14)
+	if (fabs(values_output[idx])>=1.0e-13)
 	{
-		compute_v_r[work_item_index] = 0;
+		search_for_new_v_r[work_item_index] = false;
 		return;
 	}
-
-	if (i_r[work_item_index] >= k_max-1)
-		compute_v_r[work_item_index] = 0;
 }
 
-__global__ void remove_rubbish_from_maxima(int* compute_v_r, int mat_vec_data_count, int* keys_output, double* values_output, int output_set_counts)
+__global__ void remove_rubbish_from_maxima(bool* search_for_new_v_r, int mat_vec_data_count, int* keys_output, double* values_output, int output_set_counts)
 {
 	int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -1231,7 +1238,7 @@ __global__ void remove_rubbish_from_maxima(int* compute_v_r, int mat_vec_data_co
 
 	int work_item_index = keys_output[idx];
 
-	if (compute_v_r[work_item_index]==0)
+	if (!search_for_new_v_r[work_item_index])
 	{
 		values_output[idx] = 0.0;
 		return;
@@ -1340,6 +1347,7 @@ void compute_batched_products_for_kxk_matrices(double* batched_products, int* pr
 		cudaFree(x_tmp);
 }
 
+
 void batched_low_rank_mvp(double* x, double* y, double* U, double* V, int m1_total, int m2_total, int* m1_h, int* m2_h, int mat_vec_data_count, int batch_count, int k, int* k_per_item, cublasStatus_t stat, cublasHandle_t handle , int* point_map_offsets1_h, int* point_map_offsets2_h, int* point_map1, int* point_map2, int* work_item_map1 )
 {
 	int block_size = MATRIX_ENTRY_BLOCK_SIZE;
@@ -1415,6 +1423,174 @@ void batched_low_rank_mvp(double* x, double* y, double* U, double* V, int m1_tot
 
 
 }
+
+
+
+void batched_low_rank_mvp_magma(double* x, double* y, double* U, double* V, int m1_total, int m2_total, int* m1, int* m2, int mat_vec_data_count, int batch_count, int k, int* k_per_item, cublasStatus_t stat, cublasHandle_t handle, magma_queue_t* queue, int* point_map_offsets1_h, int* point_map_offsets2_h, int* point_map1, int* point_map2, int* work_item_map1 )
+{
+	int block_size = MATRIX_ENTRY_BLOCK_SIZE;
+
+	thrust::device_ptr<int> point_map1_ptr(point_map1);
+	thrust::device_ptr<int> point_map2_ptr(point_map2);
+
+	// allocation and extraction of batched local operands
+	double* local_x;
+	cudaMalloc((void**)&local_x, m2_total*sizeof(double));
+	checkCUDAError("cudaMalloc");
+	thrust::device_ptr<double> local_x_ptr(local_x);
+	thrust::device_ptr<double> x_ptr(x);
+	thrust::gather(point_map2_ptr, point_map2_ptr+m2_total, x_ptr, local_x_ptr);
+
+
+	// allocation of batched local intermediate results
+	double* local_tmp;
+	cudaMalloc((void**)&local_tmp, batch_count*k*sizeof(double));
+	checkCUDAError("cudaMalloc");
+	thrust::device_ptr<double> local_tmp_ptr(local_tmp);
+	thrust::fill(local_tmp_ptr, local_tmp_ptr+(batch_count*k), 0.0);
+
+	// allocation of batched local results
+	double* local_y;
+	cudaMalloc((void**)&local_y, m1_total*sizeof(double));
+	checkCUDAError("cudaMalloc");
+	thrust::device_ptr<double> local_y_ptr(local_y);
+	thrust::fill(local_y_ptr, local_y_ptr+m1_total, 0.0);
+
+
+
+//      TIME_ssstop("Preparing y_local");
+//      TIME_ssstart;
+
+        // batched matrix-vector-product
+        double one;
+        double zero;
+        one = 1.0;
+        zero = 0.0;
+
+        int* incx;
+        int* incy;
+        int* ldda;
+        cudaMalloc((void**)&incx,sizeof(int)*(mat_vec_data_count+1));
+        cudaMalloc((void**)&incy,sizeof(int)*(mat_vec_data_count+1));
+        cudaMalloc((void**)&ldda,sizeof(int)*(mat_vec_data_count+1));
+
+	checkCUDAError("cudaMalloc1");
+
+        thrust::device_ptr<int> incx_ptr(incx);
+        thrust::device_ptr<int> incy_ptr(incy);
+	thrust::device_ptr<int> ldda_ptr(ldda);
+        thrust::fill(incx_ptr, incx_ptr+(mat_vec_data_count+1), 1);
+        thrust::fill(incy_ptr, incy_ptr+(mat_vec_data_count+1), 1);
+	thrust::fill(ldda_ptr, ldda_ptr+(mat_vec_data_count+1), m2_total);
+
+	double** dU_array_h = new double*[mat_vec_data_count+1];
+	double** dV_array_h = new double*[mat_vec_data_count+1];
+	double** dx_array_h = new double*[mat_vec_data_count+1];
+	double** dtmp_array_h = new double*[mat_vec_data_count+1];
+	double** dy_array_h = new double*[mat_vec_data_count+1];
+
+	double** dU_array;
+	double** dV_array;
+	double** dx_array;
+	double** dtmp_array;
+	double** dy_array;
+
+	cudaMalloc((void**)&dU_array, (mat_vec_data_count+1)*sizeof(double*));
+	cudaMalloc((void**)&dV_array, (mat_vec_data_count+1)*sizeof(double*));
+	cudaMalloc((void**)&dx_array, (mat_vec_data_count+1)*sizeof(double*));
+	cudaMalloc((void**)&dtmp_array, (mat_vec_data_count+1)*sizeof(double*));
+	cudaMalloc((void**)&dy_array, (mat_vec_data_count+1)*sizeof(double*));
+	checkCUDAError("cudaMalloc2");
+
+	int current_batch = 0;
+
+	int* m1_h = new int[mat_vec_data_count];
+	int* m2_h = new int[mat_vec_data_count];
+	cudaMemcpy(m1_h, m1, mat_vec_data_count*sizeof(int), cudaMemcpyDeviceToHost);
+	cudaMemcpy(m2_h, m2, mat_vec_data_count*sizeof(int), cudaMemcpyDeviceToHost);
+
+
+
+	for (int s=0; s<mat_vec_data_count; s++)
+        {
+                if ((m2_h[s]>0)&&(m1_h[s]>0)) // check whether current work item is valid
+                {
+			dV_array_h[current_batch] = &V[point_map_offsets2_h[s]];
+			dU_array_h[current_batch] = &U[point_map_offsets1_h[s]];
+			dx_array_h[current_batch] = &local_x[point_map_offsets2_h[s]];
+			dtmp_array_h[current_batch] = &local_tmp[current_batch*k];
+			dy_array_h[current_batch] = &local_y[point_map_offsets1_h[s]];
+
+			current_batch++;
+                }
+		else
+		{
+			printf("\n\n\n KKKKKOOOOOMMMMIIIISSSSCCCCHHHHH \n\n\n"); fflush(stdout);
+		}
+        }
+
+	delete [] m1_h;
+	delete [] m2_h;
+
+	cudaMemcpy(dV_array, dV_array_h, (mat_vec_data_count)*sizeof(double*), cudaMemcpyHostToDevice);
+	cudaMemcpy(dU_array, dU_array_h, (mat_vec_data_count)*sizeof(double*), cudaMemcpyHostToDevice);
+	cudaMemcpy(dx_array, dx_array_h, (mat_vec_data_count)*sizeof(double*), cudaMemcpyHostToDevice);
+	cudaMemcpy(dtmp_array, dtmp_array_h, (mat_vec_data_count)*sizeof(double*), cudaMemcpyHostToDevice);
+	cudaMemcpy(dy_array, dy_array_h, (mat_vec_data_count)*sizeof(double*), cudaMemcpyHostToDevice);
+
+	checkCUDAError("cudaMemcpy");
+
+	delete [] dU_array_h;
+	delete [] dV_array_h;
+	delete [] dx_array_h;
+	delete [] dtmp_array_h;
+	delete [] dy_array_h;
+
+
+        magmablas_dgemv_vbatched( MagmaTrans, m2, k_per_item, one, dV_array, ldda, dx_array, incx, zero, dtmp_array, incy, current_batch, *queue);
+
+	checkCUDAError("magmablas_dgemv_vbatched1");
+
+	thrust::fill(ldda_ptr, ldda_ptr+(mat_vec_data_count+1), m1_total);
+
+        magmablas_dgemv_vbatched( MagmaNoTrans, m1, k_per_item, one, dU_array, ldda, dtmp_array, incx, zero, dy_array, incy, current_batch, *queue);
+
+	checkCUDAError("magmablas_dgemv_vbatched1");
+
+	cudaFree(dU_array);
+	cudaFree(dV_array);
+	cudaFree(dx_array);
+	cudaFree(dtmp_array);
+	cudaFree(dy_array);
+
+	checkCUDAError("cudaFree1");
+
+	cudaFree(incx);
+	cudaFree(incy);
+	cudaFree(ldda);
+
+	checkCUDAError("cudaFree2");
+
+//	thrust::device_ptr<double> local_y_ptr(local_y);
+	thrust::device_ptr<double> y_ptr(y);
+
+	// adding batched local results to full vector
+	//thrust::transform(y_ptr+current_mat_vec_data.set1_l, y_ptr+current_mat_vec_data.set1_l+m1, local_y_ptr, y_ptr+current_mat_vec_data.set1_l, thrust::plus<double>());
+	add_batched_local_results_to_full_vector<<<(m1_total + (block_size - 1)) / block_size, block_size>>>(y, local_y, point_map1, work_item_map1, m1_total);
+	cudaThreadSynchronize();
+	checkCUDAError("add_batched_local_results_to_full_vector");
+
+////	TIME_ssstop("ACA apply");
+
+	cudaFree(local_x);
+	cudaFree(local_y);
+	cudaFree(local_tmp);
+
+	checkCUDAError("cudaFree3");
+
+}
+
+
 
 bool do_stop_based_on_batched_frobenius_norm(double* U, double* V, double* u_r, double* v_r, int m1_total, int m2_total, int* point_map_offsets1_h, int* point_map_offsets2_h, bool* stop_aca_as_soon_as_possible, bool* stop_aca_as_soon_as_possible_h, int* work_item_map1, int* work_item_map2, int batch_count, int r, int mat_vec_data_count, int* m1_h, int* m2_h, double eta, double epsilon, cudaStream_t *streams, cublasStatus_t stat, cublasHandle_t handle )
 {
@@ -1830,18 +2006,44 @@ void create_maps_and_indices(int* m1, int* m2, int m1_total, int m2_total, int* 
 
 }
 
+__global__ void check_for_maximum_i_r(bool* search_for_new_v_r, bool* stop_full_aca_for_batch, int* i_r, int* m1, int mat_vec_data_count)
+{
+        int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	
+	if (idx>=mat_vec_data_count)
+		return;
 
-void compute_current_batched_v_r(double* v_r, double* U, double* V, int m1_total, int m2_total, struct work_item* mat_vec_data, int mat_vec_data_count, int* compute_v_r, int* i_r, int* point_map1, int* point_map2, int* point_map_offsets1, int* point_map_offsets2, int* work_item_map2, struct point_set* input_set1, struct point_set* input_set2, int* k_per_item, int r, struct system_assembler* assem, int k_max)
+	if ((!search_for_new_v_r[idx])||(stop_full_aca_for_batch[idx]))
+		return;
+
+	if (i_r[idx]>=m1[idx]-1)
+	{
+		search_for_new_v_r[idx] = false;
+		stop_full_aca_for_batch[idx] = true;
+	}
+}
+
+struct is_true
+{
+	__host__ __device__ bool operator()(bool b)
+	{
+		return b == true;
+	}
+};
+
+
+
+void compute_current_batched_v_r(double* v_r, double* U, double* V, int m1_total, int m2_total, struct work_item* mat_vec_data, int mat_vec_data_count, bool* search_for_new_v_r, int* i_r, int* point_map1, int* point_map2, int* point_map_offsets1, int* point_map_offsets2, int* work_item_map2, struct point_set* input_set1, struct point_set* input_set2, int* k_per_item, int* m1, int r, struct system_assembler* assem, int k_max, bool* stop_full_aca_for_batch)
 {
 
 	int block_size = MATRIX_ENTRY_BLOCK_SIZE;
 
 	thrust::device_ptr<struct work_item> mat_vec_data_ptr(mat_vec_data);
-	thrust::device_ptr<int> compute_v_r_ptr(compute_v_r);
+	thrust::device_ptr<bool> search_for_new_v_r_ptr(search_for_new_v_r);
 	thrust::device_ptr<int> i_r_ptr(i_r);
 	thrust::device_ptr<int> work_item_map2_ptr(work_item_map2);
 	thrust::device_ptr<int> k_per_item_ptr(k_per_item);
-
+	thrust::device_ptr<bool> stop_full_aca_for_batch_ptr(stop_full_aca_for_batch);
 
 	int* keys_output;
 	double* v_r_norms;
@@ -1852,13 +2054,12 @@ void compute_current_batched_v_r(double* v_r, double* U, double* V, int m1_total
 
 	checkCUDAError("cudaMalloc");
 
-	// compute on all valid entries at the beginning
-	thrust::fill(compute_v_r_ptr, compute_v_r_ptr+mat_vec_data_count, 1);
-	thrust::replace_if(compute_v_r_ptr, compute_v_r_ptr+mat_vec_data_count, mat_vec_data_ptr, is_not_WT_ACA(), 0);
+	// assuming that I start computing in all batches
+	thrust::fill(search_for_new_v_r_ptr, search_for_new_v_r_ptr+mat_vec_data_count, true);
+	// ... except if I shall not compute on a batch
+	is_true it;
+	thrust::replace_if(search_for_new_v_r_ptr, search_for_new_v_r_ptr+mat_vec_data_count, stop_full_aca_for_batch_ptr, it, false);
 
-	is_smaller_or_equal_r ser(r);
-
-	thrust::replace_if(compute_v_r_ptr, compute_v_r_ptr+mat_vec_data_count, k_per_item_ptr, ser, 0);
 
 ////	TIME_ssstop("ACA beginning of r loop");
 
@@ -1866,10 +2067,17 @@ void compute_current_batched_v_r(double* v_r, double* U, double* V, int m1_total
 
 	while (true)
 	{
+		// sanity check whether batch-wise i_r would hits upper bound of m1 (number of rows) after next increase; 
+		// if this is the case, stop calculation for corresponding batch
+		check_for_maximum_i_r<<<(mat_vec_data_count+(block_size-1))/block_size, block_size>>>(search_for_new_v_r, stop_full_aca_for_batch, i_r, m1, mat_vec_data_count);	
+		cudaThreadSynchronize();
+		checkCUDAError("check_for_maximum_i_r");
+
 		// increase i_r entry for all elements on which we shall still compute
-		thrust::transform_if(i_r_ptr, i_r_ptr+mat_vec_data_count, compute_v_r_ptr, i_r_ptr, add_one(), is_one());
+		thrust::transform_if(i_r_ptr, i_r_ptr+mat_vec_data_count, search_for_new_v_r_ptr, i_r_ptr, add_one(), is_true());
 		checkCUDAError("__transform_if");
 
+//		printf("i_r:\n");
 //		print_int(i_r, mat_vec_data_count);
 
 //		//    v_tilde_r = kernel(input_set1(i_r,:), input_set2);
@@ -1884,7 +2092,7 @@ void compute_current_batched_v_r(double* v_r, double* U, double* V, int m1_total
 //		cudaThreadSynchronize();
 //		checkCUDAError("batched_scaled_substraction_of_vectors");
 //
-		batched_fill_kernel_vector_and_scaled_substraction_for_v_r<<<(m2_total + (block_size - 1)) / block_size, block_size>>>(v_r, point_map2, point_map1, point_map_offsets1, work_item_map2, i_r, compute_v_r, input_set2, input_set1, m2_total, m1_total, V, U, r, k_per_item, assem);
+		batched_fill_kernel_vector_and_scaled_substraction_for_v_r<<<(m2_total + (block_size - 1)) / block_size, block_size>>>(v_r, point_map2, point_map1, point_map_offsets1, work_item_map2, i_r, search_for_new_v_r, input_set2, input_set1, m2_total, m1_total, V, U, r, k_per_item, assem);
 		cudaThreadSynchronize();
 		checkCUDAError("__batched_fill_kernel_vector_v_r");
 
@@ -1897,25 +2105,25 @@ void compute_current_batched_v_r(double* v_r, double* U, double* V, int m1_total
 //		// remove potential rubbish in invalid entries
 //		thrust::replace_if(v_r_norms_ptr, v_r_norms_ptr+output_set_counts, keys_output_ptr, is_minus_one(), 0.0);
 			
-		remove_rubbish_from_maxima<<<(v_r_norms_count + (block_size-1)) / block_size, block_size>>>(compute_v_r, mat_vec_data_count, keys_output, v_r_norms, v_r_norms_count);
+		remove_rubbish_from_maxima<<<(v_r_norms_count + (block_size-1)) / block_size, block_size>>>(search_for_new_v_r, mat_vec_data_count, keys_output, v_r_norms, v_r_norms_count);
 		cudaThreadSynchronize();
 		checkCUDAError("remove_rubbish_from_maxima");
 
 
 		// if a work_item has finished, set respective compute_v_r entry to 0
-		update_ir<<<(v_r_norms_count + (block_size-1)) / block_size, block_size>>>(i_r, compute_v_r, mat_vec_data_count, keys_output, v_r_norms, v_r_norms_count, k_max);
+		update_ir<<<(v_r_norms_count + (block_size-1)) / block_size, block_size>>>(i_r, search_for_new_v_r, mat_vec_data_count, keys_output, v_r_norms, v_r_norms_count, m1);
 		cudaThreadSynchronize();
 		checkCUDAError("update_ir");
 
 
-		int max_of_compute_v_r;
-		max_of_compute_v_r = thrust::reduce(compute_v_r_ptr, compute_v_r_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
+		bool continue_search_for_new_v_r;
+		continue_search_for_new_v_r = thrust::reduce(search_for_new_v_r_ptr, search_for_new_v_r_ptr+mat_vec_data_count, false, thrust::logical_or<bool>());
 
 //		print_int(compute_v_r, mat_vec_data_count);
 //		printf("max: %d\n", max_of_compute_v_r);
 
 
-		if (max_of_compute_v_r == 0)
+		if (!continue_search_for_new_v_r)
 			break;
 //		// stop iteration when no v_r is (almost) zero
 //		if (thrust::all_of(v_r_norms_ptr, v_r_norms_ptr+output_set_counts, bigger_than_eps()))
@@ -1937,7 +2145,7 @@ void compute_current_batched_v_r(double* v_r, double* U, double* V, int m1_total
 
 }
 
-void compute_current_batched_u_r(double* u_r, double* v_r, double* U, double* V, int m1_total, int m2_total, struct work_item* mat_vec_data, int mat_vec_data_count, int* point_map1, int* point_map2, int* work_item_map1, int* work_item_map2, struct point_set* input_set1, struct point_set* input_set2, int* k_per_item, int* j_r_global, int* work_item_to_batch_map, int r, struct system_assembler* assem)
+void compute_current_batched_u_r(double* u_r, double* v_r, double* U, double* V, int m1_total, int m2_total, struct work_item* mat_vec_data, int mat_vec_data_count, int* point_map1, int* point_map2, int* work_item_map1, int* work_item_map2, struct point_set* input_set1, struct point_set* input_set2, int* k_per_item, int* j_r_global, int* work_item_to_batch_map, int r, struct system_assembler* assem, bool* stop_full_aca_for_batch)
 {
 
 		int block_size = MATRIX_ENTRY_BLOCK_SIZE;
@@ -1984,7 +2192,7 @@ void compute_current_batched_u_r(double* u_r, double* v_r, double* U, double* V,
 
 
 	    // v_r = (1.0./(v_tilde_k(j_r)))*v_tilde_r;
-		batched_scaling_of_v_r<<<(m2_total + (block_size-1)) / block_size, block_size>>>(v_r, work_item_to_batch_map, work_item_map2, k_per_item, r, j_r_global, m2_total);
+		batched_scaling_of_v_r<<<(m2_total + (block_size-1)) / block_size, block_size>>>(v_r, work_item_to_batch_map, work_item_map2, k_per_item, r, j_r_global, m2_total, stop_full_aca_for_batch);
 		cudaThreadSynchronize();
 		checkCUDAError("batched_scaling_of_v_r");
 
@@ -2004,7 +2212,7 @@ void compute_current_batched_u_r(double* u_r, double* v_r, double* U, double* V,
 //		cudaThreadSynchronize();
 //		checkCUDAError("batched_scaled_substraction_for_u_r");
 
-		batched_fill_kernel_vector_and_scaled_substraction_for_u_r<<<(m1_total + (block_size-1)) / block_size, block_size>>>(u_r, point_map1, point_map2, work_item_to_batch_map, work_item_map1, k_per_item, r, j_r_global, input_set1, input_set2, m1_total, m2_total, U, V, assem);
+		batched_fill_kernel_vector_and_scaled_substraction_for_u_r<<<(m1_total + (block_size-1)) / block_size, block_size>>>(u_r, point_map1, point_map2, work_item_to_batch_map, work_item_map1, k_per_item, r, j_r_global, input_set1, input_set2, m1_total, m2_total, U, V, assem, stop_full_aca_for_batch);
 		cudaThreadSynchronize();
 		checkCUDAError("batched_fill_kernel_vector_and_scaled_substraction_for_u_r");
 
@@ -2121,6 +2329,8 @@ void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int
 		k = min(m1_max, m2_max);
 	}
 
+//	printf("MAX: m1 %d  m2 %d\n", m1_max, m2_max);
+
 
 	//-------------------------------
 	// allocate and init batched U, V
@@ -2158,16 +2368,16 @@ void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int
 	// on invalid entries (in mat_vec_data) we shall never compute
 	thrust::replace_if(i_r_ptr, i_r_ptr+mat_vec_data_count, mat_vec_data_ptr, is_not_WT_ACA(), -1);
 
-	int* compute_v_r;
-	cudaMalloc((void**)&compute_v_r, mat_vec_data_count*sizeof(int));
-	thrust::device_ptr<int> compute_v_r_ptr(compute_v_r);
+	bool* search_for_new_v_r;
+	cudaMalloc((void**)&search_for_new_v_r, mat_vec_data_count*sizeof(bool));
+//	thrust::device_ptr<int> compute_v_r_ptr(compute_v_r);
 
   	
 //	cudaStream_t *streams = new cudaStream_t[batch_count];
 //	for(int b=0; b<batch_count; b++)
 //        	cudaStreamCreate(&streams[b]);
 
-
+/*
 	bool* stop_aca_as_soon_as_possible;
 	cudaMalloc((void**)&stop_aca_as_soon_as_possible, batch_count*sizeof(bool));
 	thrust::device_ptr<bool> stop_aca_as_soon_as_possible_ptr(stop_aca_as_soon_as_possible);
@@ -2177,69 +2387,88 @@ void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int
 	bool* stop_aca_as_soon_as_possible_h;
 	stop_aca_as_soon_as_possible_h = new bool[batch_count];
 	cudaMemcpy(stop_aca_as_soon_as_possible_h, stop_aca_as_soon_as_possible, batch_count*sizeof(bool), cudaMemcpyDeviceToHost);
+*/
 
-	
-	// for r=1:k
-	for (int r=0; r<k; r++)
-	{
-		// while (norm(v_tilde_r,Inf)==0.0)
-	    //    i_r = i_r+1;
-	    //    v_tilde_r = kernel(input_set1(i_r,:), input_set2);
-	    //    for l=1:r-1
-	    //        v_tilde_r = v_tilde_r - U(i_r,l) * V(l,:);
-	    //    end
-	    // end
+
+        bool* stop_full_aca_for_batch;
+        cudaMalloc((void**)&stop_full_aca_for_batch, mat_vec_data_count*sizeof(bool));
+        thrust::device_ptr<bool> stop_full_aca_for_batch_ptr(stop_full_aca_for_batch);
+        thrust::fill(stop_full_aca_for_batch_ptr, stop_full_aca_for_batch_ptr+mat_vec_data_count, false);
+
+        // if it is not a valid batch, I will certainly not start computing
+        thrust::replace_if(stop_full_aca_for_batch_ptr, stop_full_aca_for_batch_ptr+mat_vec_data_count, mat_vec_data_ptr, is_not_WT_ACA(), true);
+
+
+
+        // for r=1:k
+        for (int r=0; r<k; r++)
+        {
+                // while (norm(v_tilde_r,Inf)==0.0)
+            //    i_r = i_r+1;
+            //    v_tilde_r = kernel(input_set1(i_r,:), input_set2);
+            //    for l=1:r-1
+            //        v_tilde_r = v_tilde_r - U(i_r,l) * V(l,:);
+            //    end
+            // end
 
         // U = [U u_r];
         // V = [V; v_r];
-		v_r = &V[r*m2_total];
-		u_r = &U[r*m1_total];
-		thrust::device_ptr<double> u_r_ptr(u_r);
-		thrust::device_ptr<double> v_r_ptr(v_r);
-
-		
-		compute_current_batched_v_r(v_r, U, V, m1_total, m2_total, mat_vec_data, mat_vec_data_count, compute_v_r, i_r, point_map1, point_map2, point_map_offsets1, point_map_offsets2, work_item_map2, input_set1, input_set2, k_per_item, r, assem, k);
+                v_r = &V[r*m2_total];
+                u_r = &U[r*m1_total];
+                thrust::device_ptr<double> u_r_ptr(u_r);
+                thrust::device_ptr<double> v_r_ptr(v_r);
 
 
-		//// [m,j_r] = max(abs(v_tilde_r));
-		//thrust::device_ptr<double> max_pos = thrust::max_element(v_r_ptr, v_r_ptr+m2, compare_absolute());
-		//int j_r = max_pos - v_r_ptr;
-
-		int* j_r_global; // j_r index (maximum positions) as global indices in the batched vector
-		cudaMalloc((void**)&j_r_global, mat_vec_data_count*sizeof(int));  // mat_vec_data_count is an upper bound to the actual amount of batches
-		checkCUDAError("cudaMalloc");
-		thrust::device_ptr<int> j_r_global_ptr(j_r_global);
-
-		compute_current_batched_u_r(u_r, v_r, U, V, m1_total, m2_total, mat_vec_data, mat_vec_data_count, point_map1, point_map2, work_item_map1, work_item_map2, input_set1, input_set2, k_per_item, j_r_global, work_item_to_batch_map, r, assem);
+                // if r>=k_per_item[batch_item] on the batch_item'th batch, don't do anything on this batch
+                is_smaller_or_equal_r ser(r);
+                thrust::replace_if(stop_full_aca_for_batch_ptr, stop_full_aca_for_batch_ptr+mat_vec_data_count, k_per_item_ptr, ser, true);
 
 
-		cudaFree(j_r_global);
+                compute_current_batched_v_r(v_r, U, V, m1_total, m2_total, mat_vec_data, mat_vec_data_count, search_for_new_v_r, i_r, point_map1, point_map2, point_map_offsets1, point_map_offsets2, work_item_map2, input_set1, input_set2, k_per_item, m1, r, assem, k, stop_full_aca_for_batch);
 
 
-		bool check_frobenius = false;
+                //// [m,j_r] = max(abs(v_tilde_r));
+                //thrust::device_ptr<double> max_pos = thrust::max_element(v_r_ptr, v_r_ptr+m2, compare_absolute());
+                //int j_r = max_pos - v_r_ptr;
 
-//		if (check_frobenius && (r%5==0))
-//		{
+                int* j_r_global; // j_r index (maximum positions) as global indices in the batched vector
+                cudaMalloc((void**)&j_r_global, mat_vec_data_count*sizeof(int));  // mat_vec_data_count is an upper bound to the actual amount of batches
+                checkCUDAError("cudaMalloc");
+                thrust::device_ptr<int> j_r_global_ptr(j_r_global);
+
+                compute_current_batched_u_r(u_r, v_r, U, V, m1_total, m2_total, mat_vec_data, mat_vec_data_count, point_map1, point_map2, work_item_map1, work_item_map2, input_set1, input_set2, k_per_item, j_r_global, work_item_to_batch_map, r, assem, stop_full_aca_for_batch);
+
+
+                cudaFree(j_r_global);
+
+
+//              bool check_frobenius = false;
 //
-//			bool stop = do_stop_based_on_batched_frobenius_norm(U, V, u_r, v_r, m1_total, m2_total, point_map_offsets1_h, point_map_offsets2_h, stop_aca_as_soon_as_possible, stop_aca_as_soon_as_possible_h, work_item_map1, work_item_map2, batch_count, r, mat_vec_data_count, m1_h, m2_h, eta, epsilon, streams, stat, handle );
+//              if (check_frobenius && (r%5==0))
+//              {
 //
-//			if (stop)
-//			{
-//				break;
-//			}
+//                      bool stop = do_stop_based_on_batched_frobenius_norm(*U, *V, u_r, v_r, m1_total, m2_total, point_map_offsets1_h, point_map_offsets2_h, stop_aca_as_soon_as_possible, stop_aca_as_soon_as_possible_h, work_item_map1, work_item_map2, batch_count, r, mat_vec_data_count, m1_h, m2_h, eta, epsilon, streams, stat, handle );
 //
-//	
-//		}
-	}
+//                      if (stop)
+//                      {
+//                              break;
+//                      }
+//
+//      
+//              }
+        }
+
+        cudaFree(stop_full_aca_for_batch);
+
 
 
 	cudaFree(work_item_to_batch_map);
 	cudaFree(i_r);
-	cudaFree(compute_v_r);
-
+	cudaFree(search_for_new_v_r);
+/*
 	cudaFree(stop_aca_as_soon_as_possible);
 	delete [] stop_aca_as_soon_as_possible_h;
-
+*/
 
 
 
@@ -2254,10 +2483,11 @@ void apply_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int
 	cudaFree(point_map_offsets1);
 	cudaFree(point_map_offsets2);
 
+//	TIME_sssstart;
 
 	// apply low-rank matrix-vector product
 	batched_low_rank_mvp(x, y, U, V, m1_total, m2_total, m1_h, m2_h, mat_vec_data_count, batch_count, k, k_per_item, stat, handle , point_map_offsets1_h, point_map_offsets2_h, point_map1, point_map2, work_item_map1 );
-
+//	TIME_sssstop("batched_low_rank_mvp");
 
 
 //	cublasSetStream(handle, 0);
@@ -2588,6 +2818,8 @@ void apply_batched_dense_magma(double* x, double* y, struct work_item* mat_vec_d
 {
 	int block_size = MATRIX_ENTRY_BLOCK_SIZE;
 
+	if (mat_vec_data_count==0)
+		return;
 	
 	thrust::device_ptr<struct work_item> mat_vec_data_ptr(mat_vec_data);
 
@@ -2684,8 +2916,10 @@ void apply_batched_dense_magma(double* x, double* y, struct work_item* mat_vec_d
 //	//------------------------------
 //	// get maximal m1,m2 for padding
 //	//------------------------------
-//	int m1_max = thrust::reduce(m1_ptr, m1_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
-//	int m2_max = thrust::reduce(m2_ptr, m2_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
+	int m1_max = thrust::reduce(m1_ptr, m1_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
+	int m2_max = thrust::reduce(m2_ptr, m2_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
+
+//	printf("MAX: m1 %d  m2 %d\n", m1_max, m2_max);
 
 //	TIME_ssstop("Indexing c");	
 //	TIME_ssstart;
@@ -2907,7 +3141,9 @@ void precompute_batched_dense_magma(struct work_item* mat_vec_data, int mat_vec_
 {
 	int block_size = MATRIX_ENTRY_BLOCK_SIZE;
 
-	
+	if (mat_vec_data_count == 0)
+		return;
+
 	thrust::device_ptr<struct work_item> mat_vec_data_ptr(mat_vec_data);
 
 //	{
@@ -3106,14 +3342,181 @@ void precompute_batched_dense_magma(struct work_item* mat_vec_data, int mat_vec_
 }
 
 
+void apply_precomputed_batched_aca_magma(double* x, double* y, struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, magma_queue_t* queue, double eta, double epsilon, int k, double* U, double* V)
+{
+	int block_size = 512;
+
+	if (mat_vec_data_count==0)
+		return;
+
+	
+	thrust::device_ptr<struct work_item> mat_vec_data_ptr(mat_vec_data);
+
+//	{
+//	size_t free_mem, total_mem;
+//	cudaMemGetInfo(&free_mem, &total_mem);
+//	printf("1:   %lf MB of %lf MB available.\n", (double)free_mem/(1024.0*1024.0));
+//	}
 
 
+
+	// ------------------------
+	// compute sizes of batches
+	// ------------------------
+	int* m1;
+	int* m2;
+	cudaMalloc((void**)&m1, (mat_vec_data_count+1)*sizeof(int));
+	cudaMalloc((void**)&m2, (mat_vec_data_count+1)*sizeof(int));
+	thrust::device_ptr<int> m1_ptr(m1);
+	thrust::device_ptr<int> m2_ptr(m2);
+	compute_m1_m2(m1, m2, mat_vec_data, mat_vec_data_count, WT_ACA);
+	int m1_total;
+	int m2_total;
+	m1_total = thrust::reduce(m1_ptr, m1_ptr+mat_vec_data_count);
+	m2_total = thrust::reduce(m2_ptr, m2_ptr+mat_vec_data_count);
+
+
+	// -------------------------------
+	// generate all the necessary maps
+	// -------------------------------
+	int batch_count;
+
+	int* point_map_offsets1;  // mapping of work_items to offset in batched data
+	int* point_map_offsets2;
+	int* point_map1; // map of rows of U to point indices in point_set1
+	int* point_map2; // map of rows of V to point indices in point_set2
+	int* work_item_map1; // map of rows of U to work item indices in mat_vec_data
+	int* work_item_map2; // map of rows of V to work item indices in mat_vec_data
+	int* work_item_to_batch_map;  // map between work item list (including invalid entries) and batch set list (without invalid entries)
+
+	cudaMalloc((void**)&point_map_offsets1, mat_vec_data_count*sizeof(int));
+	cudaMalloc((void**)&point_map_offsets2, mat_vec_data_count*sizeof(int));
+	cudaMalloc((void**)&point_map1, m1_total*sizeof(int));
+	cudaMalloc((void**)&point_map2, m2_total*sizeof(int));
+	cudaMalloc((void**)&work_item_map1, m1_total*sizeof(int));
+	cudaMalloc((void**)&work_item_map2, m2_total*sizeof(int));
+	cudaMalloc((void**)&work_item_to_batch_map, mat_vec_data_count*sizeof(int));
+
+	thrust::device_ptr<int> point_map_offsets1_ptr(point_map_offsets1);
+	thrust::device_ptr<int> point_map_offsets2_ptr(point_map_offsets2);
+	thrust::device_ptr<int> point_map1_ptr(point_map1);
+	thrust::device_ptr<int> point_map2_ptr(point_map2);
+	thrust::device_ptr<int> work_item_map1_ptr(work_item_map1);
+	thrust::device_ptr<int> work_item_map2_ptr(work_item_map2);
+	thrust::device_ptr<int> work_item_to_batch_map_ptr(work_item_to_batch_map);
+
+	create_maps_and_indices(m1, m2, m1_total, m2_total, point_map_offsets1, point_map_offsets2, point_map1, point_map2, work_item_map1, work_item_map2, work_item_to_batch_map, &batch_count, mat_vec_data, mat_vec_data_count, WT_ACA);
+
+
+	// -----------------------------------------------------
+	// create local copies of some of the index / map fields
+	// -----------------------------------------------------
+	int* m1_h;
+	int* m2_h;
+	int* point_map_offsets2_h;
+	int* point_map_offsets1_h;
+	
+	m1_h = new int[mat_vec_data_count];
+	m2_h = new int[mat_vec_data_count];
+	point_map_offsets2_h = new int[mat_vec_data_count];
+	point_map_offsets1_h = new int[mat_vec_data_count];
+	
+	cudaMemcpy(m1_h, m1, mat_vec_data_count*sizeof(int), cudaMemcpyDeviceToHost);
+	cudaMemcpy(m2_h, m2, mat_vec_data_count*sizeof(int), cudaMemcpyDeviceToHost);
+	cudaMemcpy(point_map_offsets1_h, point_map_offsets1, mat_vec_data_count*sizeof(int), cudaMemcpyDeviceToHost);
+	cudaMemcpy(point_map_offsets2_h, point_map_offsets2, mat_vec_data_count*sizeof(int), cudaMemcpyDeviceToHost);
+
+
+
+	//--------------------------
+	// compute the "k" per batch
+	//--------------------------
+	int* k_per_item;
+	cudaMalloc((void**)&k_per_item, (mat_vec_data_count+1)*sizeof(int));
+	thrust::device_ptr<int> k_per_item_ptr(k_per_item);
+	// if (k>min(m,n))
+	//     k= min(m,n);
+	// end
+	set_k_per_item<<<(mat_vec_data_count + (block_size - 1)) / block_size, block_size>>>(k_per_item, k, mat_vec_data_count, m1, m2);
+	cudaThreadSynchronize();
+	checkCUDAError("set_k_per_item");
+
+
+	//-----------------------------
+	// set upper bound for global k
+	//-----------------------------
+	int m1_max = thrust::reduce(m1_ptr, m1_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
+	int m2_max = thrust::reduce(m2_ptr, m2_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
+	if (k>min(m1_max, m2_max))
+	{
+		k = min(m1_max, m2_max);
+	}
+
+
+	thrust::device_ptr<double> U_ptr(U);
+	thrust::device_ptr<double> V_ptr(V);
+
+//	cudaStream_t *streams = new cudaStream_t[batch_count];
+//	for(int b=0; b<batch_count; b++)
+  //      	cudaStreamCreate(&streams[b]);
+
+
+
+
+//       {
+//        size_t free_mem, total_mem;
+//        cudaMemGetInfo(&free_mem, &total_mem);
+//        printf("2:   %lf MB of %lf MB available.\n", (double)free_mem/(1024.0*1024.0), (double)total_mem/(1024.0*1024.0));
+//        }
+
+	cudaFree(work_item_to_batch_map);
+	cudaFree(point_map_offsets1);
+	cudaFree(point_map_offsets2);
+
+//	TIME_sssstart;
+
+	// apply low-rank matrix-vector product
+	batched_low_rank_mvp_magma(x, y, U, V, m1_total, m2_total, m1, m2, mat_vec_data_count, batch_count, k, k_per_item, stat, handle, queue, point_map_offsets1_h, point_map_offsets2_h, point_map1, point_map2, work_item_map1 );
+
+//	TIME_sssstop("batched_low_rank_mvp");
+
+
+//	cublasSetStream(handle, 0);
+//	for (int b=0; b<batch_count; b++)
+//		cudaStreamDestroy(streams[b]);
+//	delete[] streams;
+
+	delete [] m1_h;
+	delete [] m2_h;
+	delete [] point_map_offsets1_h;
+	delete [] point_map_offsets2_h;
+
+	cudaFree(m1);
+	cudaFree(m2);
+
+	cudaFree(k_per_item);
+	cudaFree(point_map1);
+	cudaFree(point_map2);
+	cudaFree(work_item_map1);
+	cudaFree(work_item_map2);
+	checkCUDAError("cudaFrees a the end of batched ACA");
+
+
+//      {
+//       size_t free_mem, total_mem;
+//        cudaMemGetInfo(&free_mem, &total_mem);
+//        printf("3:   %lf MB of %lf MB available.\n", (double)free_mem/(1024.0*1024.0), (double)total_mem/(1024.0*1024.0));
+//        }
+
+}
 
 
 void apply_precomputed_batched_aca(double* x, double* y, struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, double eta, double epsilon, int k, double* U, double* V)
 {
 	int block_size = 512;
 
+	if (mat_vec_data_count==0)
+		return;
 	
 	thrust::device_ptr<struct work_item> mat_vec_data_ptr(mat_vec_data);
 
@@ -3240,9 +3643,12 @@ void apply_precomputed_batched_aca(double* x, double* y, struct work_item* mat_v
 	cudaFree(point_map_offsets1);
 	cudaFree(point_map_offsets2);
 
+	TIME_sssstart;
 
 	// apply low-rank matrix-vector product
 	batched_low_rank_mvp(x, y, U, V, m1_total, m2_total, m1_h, m2_h, mat_vec_data_count, batch_count, k, k_per_item, stat, handle , point_map_offsets1_h, point_map_offsets2_h, point_map1, point_map2, work_item_map1 );
+
+	TIME_sssstop("batched_low_rank_mvp");
 
 
 //	cublasSetStream(handle, 0);
@@ -3272,10 +3678,15 @@ void apply_precomputed_batched_aca(double* x, double* y, struct work_item* mat_v
 
 }
 
+
+
+
 void precompute_batched_aca(struct work_item* mat_vec_data, int mat_vec_data_count, struct point_set* input_set1, struct point_set* input_set2, cublasStatus_t stat, cublasHandle_t handle, double eta, double epsilon, int k, double** U, double** V, struct system_assembler* assem)
 {
 	int block_size = MATRIX_ENTRY_BLOCK_SIZE;
 
+	if (mat_vec_data_count==0)
+		return;
 	
 	thrust::device_ptr<struct work_item> mat_vec_data_ptr(mat_vec_data);
 
@@ -3372,13 +3783,15 @@ void precompute_batched_aca(struct work_item* mat_vec_data, int mat_vec_data_cou
 	//-----------------------------
 	// set upper bound for global k
 	//-----------------------------
-	int m1_max = thrust::reduce(m1_ptr, m1_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
-	int m2_max = thrust::reduce(m2_ptr, m2_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
-	if (k>min(m1_max, m2_max))
-	{
-		k = min(m1_max, m2_max);
-	}
+//	int m1_max = thrust::reduce(m1_ptr, m1_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
+//	int m2_max = thrust::reduce(m2_ptr, m2_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
+//	if (k>min(m1_max, m2_max))
+//	{
+//		k = min(m1_max, m2_max);
+//	}
 
+	int k_per_item_max = thrust::reduce(k_per_item_ptr, k_per_item_ptr+mat_vec_data_count, 0, thrust::maximum<int>());
+	k = k_per_item_max;
 
 
 //	size_t free_mem;
@@ -3386,6 +3799,8 @@ void precompute_batched_aca(struct work_item* mat_vec_data, int mat_vec_data_cou
 //	cudaMemGetInfo(&free_mem, &total_mem);
 //	printf("00 Memory free: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024)); fflush(stdout);
 
+	
+	printf("Allocating %lf MB of memory for k=%d, with m1_total=%d and m2_total=%d\n", (double)((m1_total+m2_total)*k*sizeof(double))/(1024.0*1024.0), k, m1_total, m2_total);
 
 	//-------------------------------
 	// allocate and init batched U, V
@@ -3430,10 +3845,10 @@ void precompute_batched_aca(struct work_item* mat_vec_data, int mat_vec_data_cou
 	// on invalid entries (in mat_vec_data) we shall never compute
 	thrust::replace_if(i_r_ptr, i_r_ptr+mat_vec_data_count, mat_vec_data_ptr, is_not_WT_ACA(), -1);
 
-	int* compute_v_r;
-	cudaMalloc((void**)&compute_v_r, mat_vec_data_count*sizeof(int));
+	bool* search_for_new_v_r;
+	cudaMalloc((void**)&search_for_new_v_r, mat_vec_data_count*sizeof(bool));
 	checkCUDAError("cudaMalloc1");
-	thrust::device_ptr<int> compute_v_r_ptr(compute_v_r);
+//	thrust::device_ptr<int> compute_v_r_ptr(compute_v_r);
 
 // 	cudaMemGetInfo(&free_mem, &total_mem);
 //	printf("2 Memory free: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024)); fflush(stdout);
@@ -3449,25 +3864,34 @@ void precompute_batched_aca(struct work_item* mat_vec_data, int mat_vec_data_cou
 //        printf("2.5 Memory free: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024)); fflush(stdout);
 
 
-
+/*
 	bool* stop_aca_as_soon_as_possible;
 	cudaMalloc((void**)&stop_aca_as_soon_as_possible, batch_count*sizeof(bool));
 	checkCUDAError("cudaMalloc2");
 	thrust::device_ptr<bool> stop_aca_as_soon_as_possible_ptr(stop_aca_as_soon_as_possible);
-
+*/
 //	cudaMemGetInfo(&free_mem, &total_mem);
 //	printf("2 Memory free: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024)); fflush(stdout);
 
-
+/*
 	thrust::fill(stop_aca_as_soon_as_possible_ptr, stop_aca_as_soon_as_possible_ptr+batch_count, false);
 
 	bool* stop_aca_as_soon_as_possible_h;
 	stop_aca_as_soon_as_possible_h = new bool[batch_count];
 	cudaMemcpy(stop_aca_as_soon_as_possible_h, stop_aca_as_soon_as_possible, batch_count*sizeof(bool), cudaMemcpyDeviceToHost);
-
+*/
 	
 //	cudaMemGetInfo(&free_mem, &total_mem);
 //	printf("3 Memory free: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024)); fflush(stdout);
+
+
+	bool* stop_full_aca_for_batch;
+	cudaMalloc((void**)&stop_full_aca_for_batch, mat_vec_data_count*sizeof(bool));
+	thrust::device_ptr<bool> stop_full_aca_for_batch_ptr(stop_full_aca_for_batch);
+	thrust::fill(stop_full_aca_for_batch_ptr, stop_full_aca_for_batch_ptr+mat_vec_data_count, false);
+
+	// if it is not a valid batch, I will certainly not start computing
+	thrust::replace_if(stop_full_aca_for_batch_ptr, stop_full_aca_for_batch_ptr+mat_vec_data_count, mat_vec_data_ptr, is_not_WT_ACA(), true);
 
 
 
@@ -3489,8 +3913,13 @@ void precompute_batched_aca(struct work_item* mat_vec_data, int mat_vec_data_cou
 		thrust::device_ptr<double> u_r_ptr(u_r);
 		thrust::device_ptr<double> v_r_ptr(v_r);
 
-		
-		compute_current_batched_v_r(v_r, *U, *V, m1_total, m2_total, mat_vec_data, mat_vec_data_count, compute_v_r, i_r, point_map1, point_map2, point_map_offsets1, point_map_offsets2, work_item_map2, input_set1, input_set2, k_per_item, r, assem, k);
+
+		// if r>=k_per_item[batch_item] on the batch_item'th batch, don't do anything on this batch
+		is_smaller_or_equal_r ser(r);
+		thrust::replace_if(stop_full_aca_for_batch_ptr, stop_full_aca_for_batch_ptr+mat_vec_data_count, k_per_item_ptr, ser, true);
+
+
+		compute_current_batched_v_r(v_r, *U, *V, m1_total, m2_total, mat_vec_data, mat_vec_data_count, search_for_new_v_r, i_r, point_map1, point_map2, point_map_offsets1, point_map_offsets2, work_item_map2, input_set1, input_set2, k_per_item, m1, r, assem, k, stop_full_aca_for_batch);
 
 
 		//// [m,j_r] = max(abs(v_tilde_r));
@@ -3502,7 +3931,7 @@ void precompute_batched_aca(struct work_item* mat_vec_data, int mat_vec_data_cou
 		checkCUDAError("cudaMalloc");
 		thrust::device_ptr<int> j_r_global_ptr(j_r_global);
 
-		compute_current_batched_u_r(u_r, v_r, *U, *V, m1_total, m2_total, mat_vec_data, mat_vec_data_count, point_map1, point_map2, work_item_map1, work_item_map2, input_set1, input_set2, k_per_item, j_r_global, work_item_to_batch_map, r, assem);
+		compute_current_batched_u_r(u_r, v_r, *U, *V, m1_total, m2_total, mat_vec_data, mat_vec_data_count, point_map1, point_map2, work_item_map1, work_item_map2, input_set1, input_set2, k_per_item, j_r_global, work_item_to_batch_map, r, assem, stop_full_aca_for_batch);
 
 
 		cudaFree(j_r_global);
@@ -3524,6 +3953,8 @@ void precompute_batched_aca(struct work_item* mat_vec_data, int mat_vec_data_cou
 //		}
 	}
 
+	cudaFree(stop_full_aca_for_batch);
+
 
 //	cudaMemGetInfo(&free_mem, &total_mem);
 //	printf("4 Memory free: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024)); fflush(stdout);
@@ -3531,11 +3962,11 @@ void precompute_batched_aca(struct work_item* mat_vec_data, int mat_vec_data_cou
 
 	cudaFree(work_item_to_batch_map);
 	cudaFree(i_r);
-	cudaFree(compute_v_r);
-
+	cudaFree(search_for_new_v_r);
+/*
 	cudaFree(stop_aca_as_soon_as_possible);
 	delete [] stop_aca_as_soon_as_possible_h;
-
+*/
 
 
 
@@ -3568,6 +3999,8 @@ void precompute_batched_aca(struct work_item* mat_vec_data, int mat_vec_data_cou
 	cudaFree(work_item_map1);
 	cudaFree(work_item_map2);
 	checkCUDAError("cudaFrees a the end of batched ACA");
+
+	printf("precomputing of ACA done"); fflush(stdout);
 
 
 //       {
@@ -3669,7 +4102,7 @@ int compute_current_dense_work_size_magma(struct work_item* mat_vec_data_h, stru
         if (current_dense_matrix_size > max_batched_size)
                 current_dense_work_size--;
 
-	printf("used: %lu, allocated: %lu\n", current_dense_matrix_size*sizeof(double)/1024/1024, max_batched_size*sizeof(double)/1024/1024);
+//	printf("used: %lu, allocated: %lu\n", current_dense_matrix_size*sizeof(double)/1024/1024, max_batched_size*sizeof(double)/1024/1024);
 
         return current_dense_work_size;
 }
@@ -3739,6 +4172,31 @@ int compute_current_aca_work_size(struct work_item* mat_vec_data_h, struct mat_v
 
         return current_aca_work_size;
 }
+
+void predict_precomputing_memory_requirements(struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, int* predicted_dense_work_size)
+{
+        struct work_item* mat_vec_data_h = new struct work_item[mat_vec_info->dense_count+mat_vec_info->aca_count];
+
+        cudaMemcpy(mat_vec_data_h, mat_vec_data, (mat_vec_info->dense_count+mat_vec_info->aca_count)*sizeof(struct work_item), cudaMemcpyDeviceToHost);
+
+	int required_dense_work_size = 0;
+	int m1,m2;
+
+	for (int i=0; i<mat_vec_info->dense_count; i++)
+	{
+		m1 = mat_vec_data_h[i].set1_u-mat_vec_data_h[i].set1_l+1;
+		m2 = mat_vec_data_h[i].set2_u-mat_vec_data_h[i].set2_l+1;
+		required_dense_work_size += m1*m2;
+	}
+
+	printf("Requiring %lf MB of memory and a dense_work_size of %d for dense blocks.\n", (double)required_dense_work_size*(double)sizeof(double)/(1024.0*1024.0), required_dense_work_size);	
+
+	*predicted_dense_work_size = (int)((double)required_dense_work_size*1.05);
+
+	delete [] mat_vec_data_h;
+
+}
+
 
 void precompute_work_sizes(int** dense_work_size, int** aca_work_size, int* dense_batch_count, int* aca_batch_count, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, int max_batched_dense_size, int max_batched_aca_size)
 {
@@ -3830,6 +4288,7 @@ void precompute_work_sizes(int** dense_work_size, int** aca_work_size, int* dens
 }
 
 
+
 void h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* dA, double* U, double* V, struct system_assembler* assem, int max_batched_dense_size, double dense_batching_ratio, int max_batched_aca_size, magma_queue_t magma_queue, int* dense_work_size, int* aca_work_size, int dense_batch_count, int aca_batch_count, bool use_precomputed_aca, bool use_precomputed_dense)
 {
     cublasStatus_t stat;
@@ -3884,13 +4343,14 @@ void h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct m
 
 
 	TIME_ssstart;
-	
+
+
 	if (use_precomputed_aca)
 	{
 		thrust::device_ptr<struct work_item> mat_vec_data_ptr(mat_vec_data);
 		thrust::device_ptr<struct work_item> dense_end_ptr = thrust::partition_point(mat_vec_data_ptr, mat_vec_data_ptr+mat_vec_info->total_count, is_not_WT_ACA());
 	
-		apply_precomputed_batched_aca(x, y, &mat_vec_data[mat_vec_info->dense_count], mat_vec_info->aca_count, input_set1, input_set2, stat, handle, eta, epsilon, k, U, V);
+		apply_precomputed_batched_aca_magma(x, y, &mat_vec_data[mat_vec_info->dense_count], mat_vec_info->aca_count, input_set1, input_set2, stat, handle, &magma_queue, eta, epsilon, k, U, V);
 	}
 	else
 	{

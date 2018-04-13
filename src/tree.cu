@@ -155,7 +155,8 @@ __host__ __device__ __forceinline__ bool bounding_box_admissibility(struct work_
 
 	double dist = compute_distance(item.min1, item.max1, item.min2, item.max2, item.dim);
 
-	return (fmin(diam1, diam2) <= (eta*dist));
+//	return (fmin(diam1, diam2) <= (eta*dist));
+	return (fmax(diam1, diam2) <= (eta*dist));
 }
 
 
@@ -230,10 +231,10 @@ __global__ void count_for_new_level(struct work_item *current_level_data, struct
 	{
 		bool is_admissible = bounding_box_admissibility(work, input_set1, input_set2, eta);
 
-		int level_1 = round(log((double)(work.set1_u-work.set1_l+1))/log(2.0));
-		int level_2 = round(log((double)(work.set2_u-work.set2_l+1))/log(2.0));
+//		int level_1 = round(log((double)(work.set1_u-work.set1_l+1))/log(2.0));
+//		int level_2 = round(log((double)(work.set2_u-work.set2_l+1))/log(2.0));
 		
-		if (level_1==level_2)
+		if (work.level_1==work.level_2)
 		{
 			if (is_admissible)
 			{
@@ -342,21 +343,29 @@ __global__ void generate_new_level(struct work_item *current_level_data, struct 
 		child11.set1_u = split_set1;
 		child11.set2_l = work.set2_l;
 		child11.set2_u = split_set2;
+		child11.level_1 = work.level_1+1;
+		child11.level_2 = work.level_2+1;
 
 		child12.set1_l = work.set1_l;
 		child12.set1_u = split_set1;
 		child12.set2_l = split_set2+1;
 		child12.set2_u = work.set2_u;
+		child12.level_1 = work.level_1+1;
+		child12.level_2 = work.level_2+1;
 
 		child21.set1_l = split_set1+1;
 		child21.set1_u = work.set1_u;
 		child21.set2_l = work.set2_l;
 		child21.set2_u = split_set2;
+		child21.level_1 = work.level_1+1;
+		child21.level_2 = work.level_2+1;
 
 		child22.set1_l = split_set1+1;  // correct ?
 		child22.set1_u = work.set1_u;
 		child22.set2_l = split_set2+1;
 		child22.set2_u = work.set2_u;
+		child22.level_1 = work.level_1+1;
+		child22.level_2 = work.level_2+1;
 
 		// insert new children in work queue
 		next_level_data[offset]=child11;
@@ -366,10 +375,10 @@ __global__ void generate_new_level(struct work_item *current_level_data, struct 
 	}
 	else if (child_counts[idx]==2)
 	{
-                int level_1 = round(log((double)(work.set1_u-work.set1_l+1))/log(2.0));
-                int level_2 = round(log((double)(work.set2_u-work.set2_l+1))/log(2.0));
+//                int level_1 = round(log((double)(work.set1_u-work.set1_l+1))/log(2.0));
+//                int level_2 = round(log((double)(work.set2_u-work.set2_l+1))/log(2.0));
 
-		if (level_1>level_2)
+		if (work.level_1<work.level_2)
 		{
 			int offset = new_child_offsets[idx];
 			// create children
@@ -381,11 +390,15 @@ __global__ void generate_new_level(struct work_item *current_level_data, struct 
 	                child11.set1_u = split_set1;
          	       	child11.set2_l = work.set2_l;
                 	child11.set2_u = work.set2_u;
+			child11.level_1 = work.level_1+1;
+			child11.level_2 = work.level_2;
 
         	        child21.set1_l = split_set1+1;
                 	child21.set1_u = work.set1_u;
 	                child21.set2_l = work.set2_l;
         	        child21.set2_u = work.set2_u;
+			child21.level_1 = work.level_1+1;
+			child21.level_2 = work.level_2;
 
 			// insert new children in work queue
 			next_level_data[offset]=child11;
@@ -404,11 +417,15 @@ __global__ void generate_new_level(struct work_item *current_level_data, struct 
 	                child11.set1_u = work.set1_u;
 	                child11.set2_l = work.set2_l;
 	                child11.set2_u = split_set2;
+			child11.level_1 = work.level_1;
+			child11.level_2 = work.level_2+1;
 	
 		        child12.set1_l = work.set1_l;
 	                child12.set1_u = work.set1_u;
         	        child12.set2_l = split_set2+1;
 	                child12.set2_u = work.set2_u;
+			child12.level_1 = work.level_1;
+			child12.level_2 = work.level_2+1;
 	
 	                // insert new children in work queue
         	        next_level_data[offset]=child11;
@@ -1044,7 +1061,7 @@ void compute_lookup_table(double*** lookup_table_min, double*** lookup_table_max
 		// Note: ordering of lookup table entries is implicitly created; mapping via output_keys is not necessary
 
 		cudaMemcpy(lookup_table_max_h[d], tmp_lookup_table, output_size*sizeof(double), cudaMemcpyDeviceToDevice);
-		checkCUDAError("cudaMemcpy12");
+		checkCUDAError("cudaMemcpy12ja");
 
 //		set_bounding_box_minmax<<<(output_size + (block_size - 1)) / block_size, block_size>>>(minmaxs, output_keys, d, dim, output_size, current_level_data, 1);
 //		cudaThreadSynchronize();
@@ -1102,7 +1119,7 @@ __global__ void set_bounding_box_minmax_using_lookup_table(double** lookup_table
 		return;
 
 	// get mapping from child node index to lookup table index
-	int map_index = map[idx];
+	int map_index = map[idx];  // DEBUG: is this correct for unbalanced trees ? should I have 2 maps?
 
 	// take the node
 	struct work_item* work = &current_level_data[idx];
@@ -1191,7 +1208,7 @@ void compute_bounding_boxes_fun(struct work_item* current_level_data, int total_
 	}
 
 	// ---------------------------------------------------------------------------
-	// compute the bounding box for the first set in each node
+	// compute the bounding box for the second set in each node
 	// ---------------------------------------------------------------------------
 
 	// given the current_level_data, i.e. the nodes on this level, compute the mapping from the node indices to the lookup table entries

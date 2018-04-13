@@ -20,7 +20,7 @@
 #define LINEAR_ALGEBRA_H_
 
 
-#define MATRIX_ENTRY_BLOCK_SIZE 512
+#define MATRIX_ENTRY_BLOCK_SIZE 128
 
 #include "morton.h"
 #include "tree.h"
@@ -99,6 +99,8 @@ struct mat_vec_data_info
 
 
 extern void organize_mat_vec_data(struct work_item* mat_vec_data, int mat_vec_data_count, struct mat_vec_data_info* mat_vec_info);
+
+extern void predict_precomputing_memory_requirements(struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, int* predicted_dense_work_size);
 
 extern void precompute_work_sizes(int** dense_work_size, int** aca_work_size, int* dense_batch_count, int* aca_batch_count, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, int max_batched_dense_size, int max_batched_aca_size);
 

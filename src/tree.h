@@ -43,13 +43,15 @@ struct work_item
 	int set2_l; // lower index bound of the points belonging to set 2
 	int set2_u; // upper index bound of the points belonging to set 2
 	int work_type;  // work type, i.e. WT_ACA or WT_DENSE
-	int is_in_use;  // whether this work item is in use (DEBUG: is this ever used????)
+//	int is_in_use;  // whether this work item is in use (DEBUG: is this ever used????)
 	double max1[MAX_POINT_DIMENSION]; // max part of the bounding box for set 1  (assuming an upper bound of MAX_POINT_DIMENSION dimensions)
 	double min1[MAX_POINT_DIMENSION]; // mim part of the bounding box for set 1  (assuming an upper bound of  dimensions)
 	double max2[MAX_POINT_DIMENSION]; // max part of the bounding box for set 2  (assuming an upper bound of  dimensions)
 	double min2[MAX_POINT_DIMENSION]; // mim part of the bounding box for set 2  (assuming an upper bound of  dimensions)
 
 	int dim;
+	char level_1;  // level of the first set / cluster, where the full data set i is on level 0, the first split leads to level 1, ...
+	char level_2;  // level of the second set / cluster, where the full data set i is on level 0, the first splits leads to level 1, ...
 };
 
 

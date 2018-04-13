@@ -30,8 +30,8 @@
 
 cudaEvent_t hmglib_start, hmglib_stop;
 float hmglib_milliseconds;
-#define TIME_start {cudaEventCreate(&hmglib_start); cudaEventCreate(&hmglib_stop); cudaEventRecord(hmglib_start);}
-#define TIME_stop(a) {cudaEventRecord(hmglib_stop); cudaEventSynchronize(hmglib_stop); cudaEventElapsedTime(&hmglib_milliseconds, hmglib_start, hmglib_stop); printf("%s: Elapsed time: %lf ms\n", a, hmglib_milliseconds); }
+#define TIME_start // {cudaEventCreate(&hmglib_start); cudaEventCreate(&hmglib_stop); cudaEventRecord(hmglib_start);}
+#define TIME_stop(a) // {cudaEventRecord(hmglib_stop); cudaEventSynchronize(hmglib_stop); cudaEventElapsedTime(&hmglib_milliseconds, hmglib_start, hmglib_stop); printf("%s: Elapsed time: %lf ms\n", a, hmglib_milliseconds); }
 
 __global__ void init_point_set(struct point_set* points, double** coords_device, unsigned int* point_ids_d, int dim, double* max_per_dim, double* min_per_dim, int size)
 {
@@ -168,6 +168,8 @@ void setup_h_matrix(struct h_matrix_data* data)
 	root_h.set1_u = data->point_count[0] - 1;
 	root_h.set2_l = 0;
 	root_h.set2_u = data->point_count[1] - 1;
+	root_h.level_1 = data->root_level_set_1;
+	root_h.level_2 = data->root_level_set_2;
 
 	data->mat_vec_data_count = 0;  // will be filled with the size number of mat_vec_data entries
 
@@ -206,7 +208,16 @@ void setup_h_matrix(struct h_matrix_data* data)
 
 	organize_mat_vec_data(*(data->mat_vec_data), data->mat_vec_data_count, &(data->mat_vec_info));
 
+	int predicted_max_batched_dense_size;
+
+	predict_precomputing_memory_requirements(*(data->mat_vec_data), &(data->mat_vec_info), &predicted_max_batched_dense_size);
+
+	data->max_batched_dense_size = predicted_max_batched_dense_size;
+
+	printf("WARNING: Overriding provided max_batched_dense_size by predicted value + 5 percent!!!\n");
+
 	precompute_work_sizes(&(data->dense_work_size), &(data->aca_work_size), &(data->dense_batch_count), &(data->aca_batch_count), *(data->mat_vec_data), &(data->mat_vec_info), data->max_batched_dense_size, data->max_batched_aca_size);
+
 
 
 	TIME_stop("tree construction and traversal");
