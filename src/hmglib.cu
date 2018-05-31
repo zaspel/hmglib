@@ -25,13 +25,14 @@
 #include "linear_algebra.h"
 #include <thrust/inner_product.h>
 #include "helper.h"
+#include <thrust/version.h>
 
 #include "hmglib.h"
 
 cudaEvent_t hmglib_start, hmglib_stop;
 float hmglib_milliseconds;
-#define TIME_start // {cudaEventCreate(&hmglib_start); cudaEventCreate(&hmglib_stop); cudaEventRecord(hmglib_start);}
-#define TIME_stop(a) // {cudaEventRecord(hmglib_stop); cudaEventSynchronize(hmglib_stop); cudaEventElapsedTime(&hmglib_milliseconds, hmglib_start, hmglib_stop); printf("%s: Elapsed time: %lf ms\n", a, hmglib_milliseconds); }
+#define TIME_start {cudaEventCreate(&hmglib_start); cudaEventCreate(&hmglib_stop); cudaEventRecord(hmglib_start);}
+#define TIME_stop(a) {cudaEventRecord(hmglib_stop); cudaEventSynchronize(hmglib_stop); cudaEventElapsedTime(&hmglib_milliseconds, hmglib_start, hmglib_stop); printf("%s: Elapsed time: %lf ms\n", a, hmglib_milliseconds); }
 
 __global__ void init_point_set(struct point_set* points, double** coords_device, unsigned int* point_ids_d, int dim, double* max_per_dim, double* min_per_dim, int size)
 {
@@ -170,6 +171,7 @@ void setup_h_matrix(struct h_matrix_data* data)
 	root_h.set2_u = data->point_count[1] - 1;
 	root_h.level_1 = data->root_level_set_1;
 	root_h.level_2 = data->root_level_set_2;
+	root_h.dim = data->dim;
 
 	data->mat_vec_data_count = 0;  // will be filled with the size number of mat_vec_data entries
 
@@ -190,7 +192,6 @@ void setup_h_matrix(struct h_matrix_data* data)
 	cudaFree(mat_vec_data);
 */
 
-
 	data->max_elements_in_array = -1; // TODO
 	data->max_elements_in_mat_vec_data_array = -1; // TODO
 
@@ -198,7 +199,9 @@ void setup_h_matrix(struct h_matrix_data* data)
 	data->mat_vec_data_array_size = 1048576;
 	cudaMalloc((void**)data->mat_vec_data, data->mat_vec_data_array_size*sizeof(struct work_item));
 
+
 	traverse_with_dynamic_arrays_dynamic_output(root_h, data->mat_vec_data, &(data->mat_vec_data_count), &(data->mat_vec_data_array_size), data->morton_d[0], data->morton_d[1], data->points_d[0], data->points_d[1], data->eta, data->max_level, data->c_leaf, data->max_elements_in_array);
+
 
 //	printf("mat_vec_data_count: %d\n", mat_vec_data_count);
 //	print_work_items(*mat_vec_data, mat_vec_data_count);
@@ -219,11 +222,147 @@ void setup_h_matrix(struct h_matrix_data* data)
 	precompute_work_sizes(&(data->dense_work_size), &(data->aca_work_size), &(data->dense_batch_count), &(data->aca_batch_count), *(data->mat_vec_data), &(data->mat_vec_info), data->max_batched_dense_size, data->max_batched_aca_size);
 
 
-
 	TIME_stop("tree construction and traversal");
 
 }
 
+void setup_h_matrix_parallel(struct h_matrix_data* data)
+{
+
+  int major = THRUST_VERSION;
+  printf("Thrust v %d\n", major);
+
+
+	TIME_start;
+
+	// compute extremal values for the point set
+	compute_minmax(data->points_d[0]);
+	compute_minmax(data->points_d[1]);
+	
+	// calculate GPU thread configuration	
+	int block_size = 512;
+	int grid_size = (max(data->point_count[0],data->point_count[1]) + (block_size - 1)) / block_size;
+
+	// generate morton codes
+	get_morton_code(data->points_d[0], data->morton_d[0], grid_size, block_size);
+	get_morton_code(data->points_d[1], data->morton_d[1], grid_size, block_size);
+	checkCUDAError("get_morton_code");
+
+//	print_points_with_morton_codes(data->points_d[0], data->morton_d[0]);
+
+	size_t free_mem;
+	size_t total_mem;
+//	cudaMemGetInfo(&free_mem, &total_mem);
+//	printf("Memory free directly before ordering allocation: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+
+
+	// find ordering of points following Z curve
+	cudaMalloc((void**)&(data->order[0]), data->point_count[0]*sizeof(uint64_t));
+	cudaMalloc((void**)&(data->order[1]), data->point_count[1]*sizeof(uint64_t));
+	checkCUDAError("cuda_malloc");
+
+//	cudaMemGetInfo(&free_mem, &total_mem);
+//	printf("Memory free directly after ordering allocation: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+
+
+
+	get_morton_ordering(data->points_d[0], data->morton_d[0], data->order[0]);
+	get_morton_ordering(data->points_d[1], data->morton_d[1], data->order[1]);
+
+//	cudaMemGetInfo(&free_mem, &total_mem);
+//	printf("Memory free directly after get_morton_ordering: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+
+
+
+//	print_points_with_morton_codes(data->points_d, data->morton_d);
+
+	// reorder points following the morton code order
+//	TIME_start;
+	reorder_point_set(data->points_d[0], data->order[0]);
+	reorder_point_set(data->points_d[1], data->order[1]);
+//	TIME_stop("reorder_point_set");
+
+	TIME_stop("data structure setup");
+
+//	cudaMemGetInfo(&free_mem, &total_mem);
+//	printf("Memory free directly after reorder_point_set: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+
+
+
+	TIME_start;
+	
+	struct work_item root_h;
+	root_h.set1_l = 0;
+	root_h.set1_u = data->point_count[0] - 1;
+	root_h.set2_l = 0;
+	root_h.set2_u = data->point_count[1] - 1;
+	root_h.level_1 = data->root_level_set_1;
+	root_h.level_2 = data->root_level_set_2;
+	root_h.dim = data->dim;
+
+	data->mat_vec_data_count = 0;  // will be filled with the size number of mat_vec_data entries
+
+/*
+	int max_elements_in_array = -1; // TODO
+	int max_elements_in_mat_vec_data_array = point_count*7; // TODO
+
+	struct work_item* mat_vec_data;
+	cudaMalloc((void**)&mat_vec_data, max_elements_in_mat_vec_data_array*sizeof(struct work_item));
+
+	TIME_start;
+	traverse_with_dynamic_arrays(root_h, mat_vec_data, &mat_vec_data_count, morton_d, morton_d, points_d, points_d, eta, max_level, c_leaf, max_elements_in_array);
+	TIME_stop("traverse_with_arrays");
+
+	printf("mat_vec_data_count: %d\n", mat_vec_data_count);
+	print_work_items(mat_vec_data, mat_vec_data_count);
+
+	cudaFree(mat_vec_data);
+*/
+
+//	cudaMemGetInfo(&free_mem, &total_mem);
+//	printf("Memory free after allocation & initialization of ordering: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+
+
+
+	data->max_elements_in_array = -1; // TODO
+	data->max_elements_in_mat_vec_data_array = -1; // TODO
+
+	data->mat_vec_data = new struct work_item*[1];
+	data->mat_vec_data_array_size = 1048576;
+	cudaMalloc((void**)data->mat_vec_data, data->mat_vec_data_array_size*sizeof(struct work_item));
+
+
+//	cudaMemGetInfo(&free_mem, &total_mem);
+//	printf("Memory free after allocation of mat_vec_data: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+
+
+
+	traverse_with_dynamic_arrays_dynamic_output(root_h, data->mat_vec_data, &(data->mat_vec_data_count), &(data->mat_vec_data_array_size), data->morton_d[0], data->morton_d[1], data->points_d[0], data->points_d[1], data->eta, data->max_level, data->c_leaf, data->max_elements_in_array);
+
+//	cudaMemGetInfo(&free_mem, &total_mem);
+//	printf("Memory free after tree traversal: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+
+	checkCUDAError("after traverse_with_dynamic_arrays...");
+
+//	printf("mat_vec_data_count: %d\n", mat_vec_data_count);
+//	print_work_items(*mat_vec_data, mat_vec_data_count);
+//	char file_name[1000];
+//	sprintf(file_name, "mat_vec_data.txt");
+//	write_work_items(file_name, *mat_vec_data, mat_vec_data_count);
+
+//	printf("Before organize ma...\n");fflush(stdout);
+
+	organize_mat_vec_data(*(data->mat_vec_data), data->mat_vec_data_count, &(data->mat_vec_info));
+//	printf("Before precompute work size...\n");fflush(stdout);
+
+	precompute_work_sizes(&(data->dense_work_size), &(data->aca_work_size), &(data->dense_batch_count), &(data->aca_batch_count), *(data->mat_vec_data), &(data->mat_vec_info), data->max_batched_dense_size, data->max_batched_aca_size);
+
+
+//	printf("After precompute work size...\n");fflush(stdout);
+
+	TIME_stop("tree construction and traversal");
+
+}
 
 void precompute_aca(struct h_matrix_data* data)
 {
@@ -234,6 +373,27 @@ void precompute_aca(struct h_matrix_data* data)
 
         TIME_stop("precompute_aca");
 }
+
+void precompute_aca_parallel(struct h_matrix_data* data, int proc)
+{
+        TIME_start; 
+
+	if (proc<data->aca_batch_count)
+	{
+		if (data->aca_work_size[proc]>0)
+		{
+			// compute offset			
+			int offset = 0;
+			for (int i=0; i<proc; i++)
+				offset = offset+data->aca_work_size[i];
+			
+			precompute_aca_for_h_matrix_mvp_custom(*(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, &(data->U), &(data->V), data->assem, offset, data->aca_work_size[proc]);
+		}
+	}
+
+        TIME_stop("precompute_aca");
+}
+
 
 
 void precompute_dense(struct h_matrix_data* data)
@@ -267,6 +427,89 @@ void precompute_dense(struct h_matrix_data* data)
 
 }
 
+void precompute_dense_parallel(struct h_matrix_data* data, int proc)
+{
+        TIME_start;
+
+//        if ((data->dense_batch_count > 2) || ((data->dense_batch_count == 2) && (data->dense_work_size[1]>0)))
+//        {
+//                printf("Dense block does not fit into memory provided by 'max_batched_dense_size'. Therefore, precomputing the dense blocks is impossible. Exiting ...\n");
+//                exit(1);
+//        }
+        
+//      size_t free_mem;
+//      size_t total_mem;
+//      cudaMemGetInfo(&free_mem, &total_mem);
+//      printf("Memory free: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+//      printf("Allocating %d MB of memory for precomputing.\n",(int)(sizeof(double)*data->max_batched_dense_size/1024/1024));
+
+        cudaMalloc((void**)&(data->dA), sizeof(double)*data->max_batched_dense_size);
+
+        cublasStatus_t stat;
+        cublasHandle_t handle;
+        stat = cublasCreate(&handle);
+       
+        if (proc<data->dense_batch_count)
+        {
+                if (data->dense_work_size[proc]>0)
+		{
+                        // compute offset                       
+                        int offset = 0;
+                        for (int i=0; i<proc; i++)
+                                offset = offset+data->dense_work_size[i];
+
+			precompute_batched_dense_magma(&((*(data->mat_vec_data))[offset]), data->dense_work_size[proc], data->points_d[0], data->points_d[1], stat, handle,data->assem, &(data->magma_queue), data->dA);
+		}
+
+
+        }
+        TIME_stop("precompute_dense");
+        
+//      cudaMemGetInfo(&free_mem, &total_mem);
+//      printf("Memory free: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+
+}
+
+// WARNING: This only works with precomputed data
+void apply_h_matrix_mvp_parallel(double* x, double* y, struct h_matrix_data* data, int proc, MPI_Comm comm)
+{
+	TIME_start;
+
+	reorder_vector(x, data->point_count[1], data->order[1]);	
+
+	bool use_precomputed_aca = true; //data->U==0 ? false : true;
+	bool use_precomputed_dense = true; //data->dA==0 ? false : true;
+
+	// set output vector to zero
+	thrust::device_ptr<double> y_ptr(y);
+	thrust::fill(y_ptr, y_ptr+data->point_count[0], 0.0);
+
+	if ((proc<data->dense_batch_count)||(proc<data->aca_batch_count))
+	{
+		if ((data->dense_work_size[proc]>0)||(data->aca_work_size[proc]>0))
+		{
+
+			// compute offset
+			int dense_offset = 0;
+			int aca_offset = 0;
+			for (int i=0; i<proc; i++)
+			{
+				dense_offset = dense_offset + data->dense_work_size[i];
+				aca_offset = aca_offset + data->aca_work_size[i];
+			}
+
+			h_matrix_mvp_parallel(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->dA, data->U, data->V, data->assem, data->max_batched_dense_size, data->dense_batching_ratio, data->max_batched_aca_size, data->magma_queue, data->dense_work_size, data->aca_work_size, data->dense_batch_count, data->aca_batch_count, use_precomputed_aca, use_precomputed_dense, dense_offset, aca_offset, proc);
+		}
+	}
+
+	MPI_Allreduce(MPI_IN_PLACE, y, data->point_count[0], MPI_DOUBLE, MPI_SUM, comm);
+	
+
+	reorder_back_vector(x, data->point_count[1], data->order[1]);
+	reorder_back_vector(y, data->point_count[0], data->order[0]);
+
+        TIME_stop("apply_h_matrix_mvp");
+}
 
 void apply_h_matrix_mvp(double* x, double* y, struct h_matrix_data* data)
 {
@@ -276,7 +519,13 @@ void apply_h_matrix_mvp(double* x, double* y, struct h_matrix_data* data)
 
 	bool use_precomputed_aca = data->U==0 ? false : true;
 	bool use_precomputed_dense = data->dA==0 ? false : true;
-	
+
+	// set output vector to zero
+	thrust::device_ptr<double> y_ptr(y);
+	thrust::fill(y_ptr, y_ptr+data->point_count[0], 0.0);
+
+
+
 	h_matrix_mvp(x, y, *(data->mat_vec_data), &(data->mat_vec_info), data->points_d[0], data->points_d[1], data->eta, data->epsilon, data->k, data->dA, data->U, data->V, data->assem, data->max_batched_dense_size, data->dense_batching_ratio, data->max_batched_aca_size, data->magma_queue, data->dense_work_size, data->aca_work_size, data->dense_batch_count, data->aca_batch_count, use_precomputed_aca, use_precomputed_dense);
 
 	reorder_back_vector(x, data->point_count[1], data->order[1]);
@@ -284,6 +533,7 @@ void apply_h_matrix_mvp(double* x, double* y, struct h_matrix_data* data)
 
         TIME_stop("apply_h_matrix_mvp");
 }
+
 
 void apply_h_matrix_mvp_without_batching(double* x, double* y, struct h_matrix_data* data)
 {

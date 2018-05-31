@@ -250,9 +250,24 @@ __global__ void count_for_new_level(struct work_item *current_level_data, struct
 			}
 			else
 			{
-				// create children
-				new_child_counts[idx] = 4;
-				new_mat_vec_counts[idx] = 0;
+		                int split_set1 = findSplit( input_set1_codes, work.set1_l, work.set1_u);
+                		int split_set2 = findSplit( input_set2_codes, work.set2_l, work.set2_u);
+
+				int min1 = min(split_set1-work.set1_l,work.set1_u-(split_set1+1));
+				int min2 = min(split_set2-work.set2_l,work.set2_u-(split_set2+1));
+
+				if ((min1>=1)&&(min2>=1))
+				{
+                                        // create children
+                                        new_child_counts[idx] = 4;
+                                        new_mat_vec_counts[idx] = 0;
+				}
+				else  
+				{
+					// dense MVP
+					new_child_counts[idx] = 0;
+					new_mat_vec_counts[idx] = 1;
+				}
 			}
 		}
 		else
@@ -367,6 +382,12 @@ __global__ void generate_new_level(struct work_item *current_level_data, struct 
 		child22.level_1 = work.level_1+1;
 		child22.level_2 = work.level_2+1;
 
+		child11.dim = work.dim;
+		child12.dim = work.dim;
+		child21.dim = work.dim;
+		child22.dim = work.dim;
+
+
 		// insert new children in work queue
 		next_level_data[offset]=child11;
 		next_level_data[offset+1]=child12;
@@ -377,6 +398,13 @@ __global__ void generate_new_level(struct work_item *current_level_data, struct 
 	{
 //                int level_1 = round(log((double)(work.set1_u-work.set1_l+1))/log(2.0));
 //                int level_2 = round(log((double)(work.set2_u-work.set2_l+1))/log(2.0));
+
+                int split_set1 = findSplit( input_set1_codes, work.set1_l, work.set1_u);
+                int split_set2 = findSplit( input_set2_codes, work.set2_l, work.set2_u);
+
+                int min1 = min(split_set1-work.set1_l,work.set1_u-(split_set1+1));
+                int min2 = min(split_set2-work.set2_l,work.set2_u-(split_set2+1));
+
 
 		if (work.level_1<work.level_2)
 		{
@@ -399,6 +427,9 @@ __global__ void generate_new_level(struct work_item *current_level_data, struct 
         	        child21.set2_u = work.set2_u;
 			child21.level_1 = work.level_1+1;
 			child21.level_2 = work.level_2;
+
+			child11.dim = work.dim;
+			child21.dim = work.dim;
 
 			// insert new children in work queue
 			next_level_data[offset]=child11;
@@ -427,6 +458,9 @@ __global__ void generate_new_level(struct work_item *current_level_data, struct 
 			child12.level_1 = work.level_1;
 			child12.level_2 = work.level_2+1;
 	
+			child11.dim = work.dim;
+			child12.dim = work.dim;
+
 	                // insert new children in work queue
         	        next_level_data[offset]=child11;
         	        next_level_data[offset+1]=child12;
@@ -685,8 +719,11 @@ __global__ void set_bounds_for_keys(int* keys, struct work_item* current_level_d
 		u = work->set2_u;
 	}
 
-	keys[l] = idx;
-	keys[u] = -2;
+	if (l!=u)
+	{
+		keys[l] = idx;
+		keys[u] = -2;
+	}
 }
 
 __global__ void set_bounds_for_keys_using_limits(int* keys, int* l, int* u, int total_children, int set_num)
@@ -696,8 +733,11 @@ __global__ void set_bounds_for_keys_using_limits(int* keys, int* l, int* u, int 
 	if (idx >= total_children)
 		return;
 
-	keys[l[idx]] = (idx+1);
-	keys[u[idx]] = -(idx+1);
+	if (l[idx]!=u[idx])
+	{
+		keys[l[idx]] = (idx+1);
+		keys[u[idx]] = -(idx+1);
+	}
 }
 
 __global__ void correct_upper_bound(int* keys, struct work_item* current_level_data, int total_children, int set_num)
@@ -709,14 +749,22 @@ __global__ void correct_upper_bound(int* keys, struct work_item* current_level_d
 
 	struct work_item* work = &current_level_data[idx];
 
-	int u;
+	int l,u;
 
 	if (set_num==1)
+	{
+		l = work->set1_l;
 		u = work->set1_u;
+	}
 	else
+	{
+		l = work->set2_l;
 		u = work->set2_u;
+	}
 
-	keys[u] = idx;
+
+//	if (l!=u)
+		keys[u] = idx;
 
 }
 
@@ -727,7 +775,8 @@ __global__ void correct_upper_bound_using_limits(int* keys, int* l, int* u, int 
 	if (idx >= total_children)
 		return;
 
-	keys[u[idx]] = (idx+1);
+//	if (l[idx]!=u[idx])
+		keys[u[idx]] = (idx+1);
 
 }
 
@@ -949,8 +998,8 @@ void compute_lookup_table(double*** lookup_table_min, double*** lookup_table_max
 
 	// since consecutive entries in u are identical when consecutive entries in l are identical (see big comment in the above routine)
 	// we can apply the unique operation to u without taking care about the output size, etc.
-	thrust::unique(u_ptr, u_ptr+total_children);
-
+        thrust::device_ptr<int> new_end_unique2 = thrust::unique(u_ptr, u_ptr+total_children);
+	
 	// very dirty way to get point count and dimensionality of points
 	int point_count,dim;
 	int* point_count_d; cudaMalloc((void**)&point_count_d, sizeof(int));
@@ -974,7 +1023,6 @@ void compute_lookup_table(double*** lookup_table_min, double*** lookup_table_max
 		cudaMalloc((void**)&(lookup_table_max_h[d]), lookup_table_size[0]*sizeof(double));
 	cudaMemcpy(*lookup_table_min, lookup_table_min_h, dim*sizeof(double*), cudaMemcpyHostToDevice);
 	cudaMemcpy(*lookup_table_max, lookup_table_max_h, dim*sizeof(double*), cudaMemcpyHostToDevice);
-
 
 	// pointers in which the dimension-wise pointer to the point coordinate array per input set is stored
 	double** coords_pointer;
@@ -1043,8 +1091,8 @@ void compute_lookup_table(double*** lookup_table_min, double*** lookup_table_max
 		checkCUDAError("cudaMemcpy11");
 		thrust::device_ptr<double> coords_current_dim_ptr(coords_pointer_h);
 
-		// create thrust pointer for lookup_table for current dimension
-		thrust::device_ptr<double> lookup_table_max_current_dim_ptr(lookup_table_max_h[d]);
+//		// create thrust pointer for lookup_table for current dimension
+//		thrust::device_ptr<double> lookup_table_max_current_dim_ptr(lookup_table_max_h[d]);
 
 		// apply maximum reduction per coordinate subset (wrt. lookup table index)
 		// note: keys are already in contigous (non-interrupted) blocks due to the Z order curve ordering
@@ -1059,7 +1107,7 @@ void compute_lookup_table(double*** lookup_table_min, double*** lookup_table_max
 
 		// computed maximum is copied into the lookup table
 		// Note: ordering of lookup table entries is implicitly created; mapping via output_keys is not necessary
-
+		
 		cudaMemcpy(lookup_table_max_h[d], tmp_lookup_table, output_size*sizeof(double), cudaMemcpyDeviceToDevice);
 		checkCUDAError("cudaMemcpy12ja");
 
@@ -1082,8 +1130,8 @@ void compute_lookup_table(double*** lookup_table_min, double*** lookup_table_max
 		checkCUDAError("cudaMemcpy21");
 		thrust::device_ptr<double> coords_current_dim_ptr(coords_pointer_h);
 
-		// create thrust pointer for lookup_table for current dimension
-		thrust::device_ptr<double> lookup_table_min_current_dim_ptr(lookup_table_min_h[d]);
+//		// create thrust pointer for lookup_table for current dimension
+//		thrust::device_ptr<double> lookup_table_min_current_dim_ptr(lookup_table_min_h[d]);
 
 		// apply minimum reduction per coordinate subset (wrt. lookup table index)
 		// note: keys are already in contigous (non-interrupted) blocks due to the Z order curve ordering
@@ -1491,6 +1539,10 @@ void traverse_with_dynamic_arrays_dynamic_output(struct work_item root_h, struct
 		cudaThreadSynchronize();
 		checkCUDAError("count_for_new_level");
 
+
+		size_t free_mem;
+		size_t total_mem;
+
 		// compute total number of new children & MatVecs
 		total_new_mat_vecs = thrust::reduce(new_mat_vec_counts_ptr, new_mat_vec_counts_ptr+total_children);
 		total_new_children = thrust::reduce(new_child_counts_ptr, new_child_counts_ptr+total_children);
@@ -1505,17 +1557,33 @@ void traverse_with_dynamic_arrays_dynamic_output(struct work_item root_h, struct
 		{
 			struct work_item* new_array;  // pointer for new array
 			struct work_item* old_array = *mat_vec_data;  // save pointer to old array
+//	        cudaMemGetInfo(&free_mem, &total_mem);
+//		printf("MatVecDataCount: %d\n", *mat_vec_data_count);
+//		printf("Memory free before malloc: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+//		printf("realloc malloc %p %d\n",new_array, (*mat_vec_data_count + total_new_mat_vecs)*sizeof(struct work_item) );
 			cudaMalloc((void**) &new_array, (*mat_vec_data_count + total_new_mat_vecs)*sizeof(struct work_item));  // allocate new, larger array
+			checkCUDAError("nach realloc");
 			cudaMemcpy(new_array, old_array, (*mat_vec_data_count)*sizeof(struct work_item), cudaMemcpyDeviceToDevice);  // transfer data to new array
+			checkCUDAError("nach memcopy");
 			*mat_vec_data = new_array;  // set new field as standard mat_vec_data array
 			*mat_vec_data_array_size = *mat_vec_data_count + total_new_mat_vecs;  // store size of new array
 			cudaFree(old_array);  // delete old array
+			checkCUDAError("nach free");
 			mat_vec_data_at_current_offset = &new_array[*mat_vec_data_count];  // re-set tail of output queue
 		}
+
+//	        cudaMemGetInfo(&free_mem, &total_mem);
+//		printf("Memory free before malloc: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+
+
+//		printf("malloc %p %d\n",next_level_data, total_new_children*sizeof(struct work_item));
 
 		// allocate array for next level
 		cudaMalloc((void**)&next_level_data, total_new_children*sizeof(struct work_item));
 		checkCUDAError("cudaMalloc1");
+//	        cudaMemGetInfo(&free_mem, &total_mem);
+//		printf("Memory free after malloc: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+
 		if (total_new_children > 0)  // handle case in which no new level is generated, does not work with 0 grid size
 		{
 			invalidate_array<<<(total_new_children + (block_size - 1)) / block_size, block_size>>>(next_level_data, total_new_children);

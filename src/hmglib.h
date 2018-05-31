@@ -25,6 +25,7 @@
 #include "magma_v2.h"
 #include "magma_lapack.h"
 #include "system_assembler.h"
+#include <mpi.h>
 
 struct h_matrix_data
 {
@@ -105,15 +106,20 @@ extern void init_h_matrix_data(struct h_matrix_data* data, int point_count[2], i
 
 extern void setup_h_matrix(struct h_matrix_data* data);
 
+extern void setup_h_matrix_parallel(struct h_matrix_data* data);
+
 extern void apply_h_matrix_mvp(double* x, double* y, struct h_matrix_data* data);
+extern void apply_h_matrix_mvp_parallel(double* x, double* y, struct h_matrix_data* data, int proc, MPI_Comm comm);
 
 extern void apply_h_matrix_mvp_without_batching(double* x, double* y, struct h_matrix_data* data);
 
 extern void destroy_h_matrix_data(struct h_matrix_data* data);
 
 extern void precompute_aca(struct h_matrix_data* data);
+extern void precompute_aca_parallel(struct h_matrix_data* data, int proc);
 
 extern void precompute_dense(struct h_matrix_data* data);
+extern void precompute_dense_parallel(struct h_matrix_data* data, int proc);
 
 extern void apply_full_mvp(double* x, double* y, struct h_matrix_data* data);
 

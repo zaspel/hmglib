@@ -597,11 +597,17 @@ __global__ void set_bounds_for_point_maps(int* point_map1, int* point_map2, int*
 	if (work->work_type!=work_item_type)
 		return;
 
-	point_map1[point_map_offsets1[idx]] = work->set1_l;
-	point_map1[point_map_offsets1[idx]+m1[idx]-1] = -(work->set1_u-1);
+	if (work->set1_l!=work->set1_u)
+	{
+		point_map1[point_map_offsets1[idx]] = work->set1_l;
+		point_map1[point_map_offsets1[idx]+m1[idx]-1] = -(work->set1_u-1);
+	}
 
-	point_map2[point_map_offsets2[idx]] = work->set2_l;
-	point_map2[point_map_offsets2[idx]+m2[idx]-1] = -(work->set2_u-1);
+	if (work->set2_l!=work->set2_u)
+	{
+		point_map2[point_map_offsets2[idx]] = work->set2_l;
+		point_map2[point_map_offsets2[idx]+m2[idx]-1] = -(work->set2_u-1);
+	}
 }
 
 __global__ void set_bounds_for_point_maps_with_padding(int* point_map2, int* m2, int padding2, int work_item_type, struct work_item* current_level_data, int mat_vec_data_count)
@@ -616,10 +622,13 @@ __global__ void set_bounds_for_point_maps_with_padding(int* point_map2, int* m2,
         if (work->work_type!=work_item_type)
                 return;
 
-        point_map2[padding2*idx] = work->set2_l;
-        point_map2[padding2*idx+m2[idx]-1] = -(work->set2_u-1);
-	if (m2[idx]<padding2)
-		point_map2[padding2*(idx+1)-1] = -(padding2-(work->set2_u-work->set2_l+1)-1);
+	if (work->set2_l!=work->set2_u)
+	{
+        	point_map2[padding2*idx] = work->set2_l;
+        	point_map2[padding2*idx+m2[idx]-1] = -(work->set2_u-1);
+		if (m2[idx]<padding2)
+			point_map2[padding2*(idx+1)-1] = -(padding2-(work->set2_u-work->set2_l+1)-1);
+	}
 }
 
 __global__ void set_bounds_for_pattern_with_padding(int* pattern2, int* m2, int padding2, int work_item_type, struct work_item* current_level_data, int mat_vec_data_count)
@@ -634,8 +643,11 @@ __global__ void set_bounds_for_pattern_with_padding(int* pattern2, int* m2, int 
         if (work->work_type!=work_item_type)
                 return;
 
-        pattern2[padding2*idx] = 1;
-        pattern2[padding2*idx+m2[idx]-1] = -1;
+	if (m2[idx]>0)  // DEBUG: Is this enough????
+	{
+	        pattern2[padding2*idx] = 1;
+	        pattern2[padding2*idx+m2[idx]-1] = -1;
+	}
 }
 
 
@@ -651,9 +663,11 @@ __global__ void correct_bounds_for_point_maps(int* point_map1, int* point_map2, 
 	if (work->work_type!=work_item_type)
 		return;
 
-	point_map1[point_map_offsets1[idx]+m1[idx]-1] = work->set1_u;
+//	if (work->set1_u!=work->set1_l)
+		point_map1[point_map_offsets1[idx]+m1[idx]-1] = work->set1_u;
 
-	point_map2[point_map_offsets2[idx]+m2[idx]-1] = work->set2_u;
+//	if (work->set2_u!=work->set2_l)
+		point_map2[point_map_offsets2[idx]+m2[idx]-1] = work->set2_u;
 }
 
 __global__ void correct_bounds_for_point_maps_with_padding(int* point_map2, int* m2, int padding2, int work_item_type, struct work_item* current_level_data, int mat_vec_data_count)
@@ -668,7 +682,8 @@ __global__ void correct_bounds_for_point_maps_with_padding(int* point_map2, int*
         if (work->work_type!=work_item_type)
                 return;
 
-        point_map2[padding2*idx+m2[idx]-1] = work->set2_u;
+//	if (work->set2_l!=work->set2_u)
+	        point_map2[padding2*idx+m2[idx]-1] = work->set2_u;
 }
 
 __global__ void correct_bounds_for_pattern_with_padding(int* pattern2, int* m2, int padding2, int work_item_type, struct work_item* current_level_data, int mat_vec_data_count)
@@ -683,7 +698,8 @@ __global__ void correct_bounds_for_pattern_with_padding(int* pattern2, int* m2, 
         if (work->work_type!=work_item_type)
                 return;
 
-        pattern2[padding2*idx+m2[idx]-1] = 1;
+//	if (m2[idx]>0)
+	        pattern2[padding2*idx+m2[idx]-1] = 1;
 }
 
 
@@ -699,11 +715,17 @@ __global__ void set_bounds_for_work_item_maps(int* work_item_map1, int* work_ite
 	if (work->work_type!=work_item_type)
 		return;
 
-	work_item_map1[point_map_offsets1[idx]] = idx;
-	work_item_map1[point_map_offsets1[idx]+m1[idx]-1] = -idx;
+	if (m1[idx]>0)
+	{
+		work_item_map1[point_map_offsets1[idx]] = idx;
+		work_item_map1[point_map_offsets1[idx]+m1[idx]-1] = -idx;
+	}
 
-	work_item_map2[point_map_offsets2[idx]] = idx;
-	work_item_map2[point_map_offsets2[idx]+m2[idx]-1] = -idx;
+	if (m2[idx]>0)
+	{
+		work_item_map2[point_map_offsets2[idx]] = idx;
+		work_item_map2[point_map_offsets2[idx]+m2[idx]-1] = -idx;
+	}
 }
 
 __global__ void correct_bounds_for_work_item_maps(int* work_item_map1, int* work_item_map2, int* point_map_offsets1, int* point_map_offsets2, int* m1, int* m2, int work_item_type, struct work_item* current_level_data, int mat_vec_data_count)
@@ -718,9 +740,11 @@ __global__ void correct_bounds_for_work_item_maps(int* work_item_map1, int* work
 	if (work->work_type!=work_item_type)
 		return;
 
-	work_item_map1[point_map_offsets1[idx]+m1[idx]-1] = idx;
+//	if (m1[idx]>0)
+		work_item_map1[point_map_offsets1[idx]+m1[idx]-1] = idx;
 
-	work_item_map2[point_map_offsets2[idx]+m2[idx]-1] = idx;
+//	if (m2[idx]>0)
+		work_item_map2[point_map_offsets2[idx]+m2[idx]-1] = idx;
 }
 
 //__global__ void set_bounds_for_point_maps_valid_entries(int* point_map_valid_entries1, int* point_map_valid_entries2, int* point_map_offsets1, int* point_map_offsets2, int work_item_type, struct work_item* current_level_data, int mat_vec_data_count)
@@ -1546,16 +1570,17 @@ void batched_low_rank_mvp_magma(double* x, double* y, double* U, double* V, int 
 	delete [] dtmp_array_h;
 	delete [] dy_array_h;
 
+//	printf("dgemv m2 %p , k_per_item %p, dV_array %p, ldda %p, dx_array%p , incx %p , dtmp_array, %p incy %p, current_batch %d\n", m2, k_per_item, dV_array, ldda, dx_array, incx, dtmp_array, incy, current_batch);
 
         magmablas_dgemv_vbatched( MagmaTrans, m2, k_per_item, one, dV_array, ldda, dx_array, incx, zero, dtmp_array, incy, current_batch, *queue);
 
-	checkCUDAError("magmablas_dgemv_vbatched1");
+	checkCUDAError("magmablas_dgemv_vbatched11");
 
 	thrust::fill(ldda_ptr, ldda_ptr+(mat_vec_data_count+1), m1_total);
 
         magmablas_dgemv_vbatched( MagmaNoTrans, m1, k_per_item, one, dU_array, ldda, dtmp_array, incx, zero, dy_array, incy, current_batch, *queue);
 
-	checkCUDAError("magmablas_dgemv_vbatched1");
+	checkCUDAError("magmablas_dgemv_vbatched12");
 
 	cudaFree(dU_array);
 	cudaFree(dV_array);
@@ -3284,7 +3309,20 @@ void precompute_batched_dense_magma(struct work_item* mat_vec_data, int mat_vec_
 //	TIME_ssstop("FILLING.1")
 //	TIME_ssstart;
 
-        fill_batched_matrix_magma<<<(total_size + (block_size - 1)) / block_size, block_size>>>(hA, mat_vec_data, input_set1, input_set2, m1, m2, total_size, matrix_offsets, mat_vec_data_count, assem);
+//        printf("grid_size %d block_size %d\n",(total_size + (block_size - 1)) / block_size, block_size);
+//	printf("hA %p mat_vec_data %p input_set1 %p input_set2 %p m1 %p m2 %p total_size %d  matrix_offsets %p mat_vec_data_count %d assem %p\n", hA, mat_vec_data, input_set1, input_set2, m1, m2, total_size, matrix_offsets, mat_vec_data_count, assem);
+//
+//	print_work_items(mat_vec_data, mat_vec_data_count);
+//	print_int(matrix_offsets, mat_vec_data_count);
+//
+//       {
+//        size_t free_mem, total_mem;
+//        cudaMemGetInfo(&free_mem, &total_mem);
+//        printf("2:   %lf MB of %lf MB available.\n", (double)free_mem/(1024.0*1024.0), (double)total_mem/(1024.0*1024.0));
+//        }
+
+
+	fill_batched_matrix_magma<<<(total_size + (block_size - 1)) / block_size, block_size>>>(hA, mat_vec_data, input_set1, input_set2, m1, m2, total_size, matrix_offsets, mat_vec_data_count, assem);
         cudaThreadSynchronize();
         checkCUDAError("fill_batched_matrix_magma");
 
@@ -4018,12 +4056,12 @@ void test_precomputation_of_batched_aca(double* x, double* y, struct work_item* 
 	double* U;
 	double* V;
 
-	printf("PRECOMPUTE\n");
+//	printf("PRECOMPUTE\n");
 
 
 	precompute_batched_aca(mat_vec_data, mat_vec_data_count, input_set1, input_set2, stat, handle, eta, epsilon, k, &U, &V, assem);
 
-	printf("APPLY\n");
+//	printf("APPLY\n");
 
 	apply_precomputed_batched_aca(x, y, mat_vec_data, mat_vec_data_count, input_set1, input_set2, stat, handle, eta, epsilon, k, U, V);
 
@@ -4036,11 +4074,14 @@ void test_precomputation_of_batched_aca(double* x, double* y, struct work_item* 
 
 void organize_mat_vec_data(struct work_item* mat_vec_data, int mat_vec_data_count, struct mat_vec_data_info* mat_vec_info)
 {
+	printf("before sort\n");fflush(stdout);
 	sort_mat_vec_data(mat_vec_data, mat_vec_data_count);
 
+	printf("before partition_point\n"); fflush(stdout);
 	thrust::device_ptr<struct work_item> mat_vec_data_ptr(mat_vec_data);
 	thrust::device_ptr<struct work_item> dense_end_ptr = thrust::partition_point(mat_vec_data_ptr, mat_vec_data_ptr+mat_vec_data_count, is_not_WT_ACA());
 
+	printf("after partition point\n"); fflush(stdout);
 	mat_vec_info->dense_count = dense_end_ptr - mat_vec_data_ptr;
 	printf("dense count: %d\n", mat_vec_info->dense_count);
 	mat_vec_info->aca_count = mat_vec_data_count - mat_vec_info->dense_count;
@@ -4108,18 +4149,26 @@ int compute_current_dense_work_size_magma(struct work_item* mat_vec_data_h, stru
 }
 
 
-
-
 void precompute_aca_for_h_matrix_mvp(struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double** U, double** V, struct system_assembler* assem)
 {
     cublasStatus_t stat;
     cublasHandle_t handle;
     stat = cublasCreate(&handle);
 
-	thrust::device_ptr<struct work_item> mat_vec_data_ptr(mat_vec_data);
-	thrust::device_ptr<struct work_item> dense_end_ptr = thrust::partition_point(mat_vec_data_ptr, mat_vec_data_ptr+mat_vec_info->total_count, is_not_WT_ACA());
-
 	precompute_batched_aca(&mat_vec_data[mat_vec_info->dense_count], mat_vec_info->aca_count, input_set1, input_set2, stat, handle, eta, epsilon, k, U, V, assem);
+
+
+    cublasDestroy(handle);
+}
+
+
+void precompute_aca_for_h_matrix_mvp_custom(struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double** U, double** V, struct system_assembler* assem, int aca_offset, int aca_count)
+{
+    cublasStatus_t stat;
+    cublasHandle_t handle;
+    stat = cublasCreate(&handle);
+
+	precompute_batched_aca(&mat_vec_data[mat_vec_info->dense_count+aca_offset], aca_count, input_set1, input_set2, stat, handle, eta, epsilon, k, U, V, assem);
 
 
     cublasDestroy(handle);
@@ -4160,7 +4209,7 @@ int compute_current_aca_work_size(struct work_item* mat_vec_data_h, struct mat_v
         int current_aca_work_size = 0;
         int current_aca_matrix_size = 0;
 
-        while ((current_aca_matrix_size <= max_batched_size)&&(current_work_item_index+current_aca_work_size<mat_vec_info->aca_count+mat_vec_info->dense_count))
+        while ((current_aca_matrix_size <= max_batched_size)&&(current_work_item_index+current_aca_work_size<mat_vec_info->aca_count+mat_vec_info->dense_count)&&(current_aca_work_size<(65536-2)))
         {
                 current_aca_matrix_size += mat_vec_data_h[current_work_item_index+current_aca_work_size].set1_u-mat_vec_data_h[current_work_item_index+current_aca_work_size].set1_l+1;
 
@@ -4287,15 +4336,12 @@ void precompute_work_sizes(int** dense_work_size, int** aca_work_size, int* dens
 
 }
 
-
-
 void h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* dA, double* U, double* V, struct system_assembler* assem, int max_batched_dense_size, double dense_batching_ratio, int max_batched_aca_size, magma_queue_t magma_queue, int* dense_work_size, int* aca_work_size, int dense_batch_count, int aca_batch_count, bool use_precomputed_aca, bool use_precomputed_dense)
 {
     cublasStatus_t stat;
     cublasHandle_t handle;
     stat = cublasCreate(&handle);
 
-	// set output vector to zero
 
 		// very dirty way to get point count and dimensionality of points
 		int point_count_1,dim;
@@ -4305,10 +4351,6 @@ void h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct m
 		cudaMemcpy(&point_count_1, point_count_1_d, sizeof(int), cudaMemcpyDeviceToHost);
 		cudaMemcpy(&dim, dim_d, sizeof(int), cudaMemcpyDeviceToHost);
 		cudaFree(point_count_1_d); cudaFree(dim_d);
-
-	thrust::device_ptr<double> y_ptr(y);
-	thrust::fill(y_ptr, y_ptr+point_count_1, 0.0);
-
 
 	TIME_ssstart;
 
@@ -4377,6 +4419,64 @@ void h_matrix_mvp(double* x, double* y, struct work_item* mat_vec_data, struct m
     
 	cublasDestroy(handle);
 }
+
+
+void h_matrix_mvp_parallel(double* x, double* y, struct work_item* mat_vec_data, struct mat_vec_data_info* mat_vec_info, struct point_set* input_set1, struct point_set* input_set2, double eta, double epsilon, int k, double* dA, double* U, double* V, struct system_assembler* assem, int max_batched_dense_size, double dense_batching_ratio, int max_batched_aca_size, magma_queue_t magma_queue, int* dense_work_size, int* aca_work_size, int dense_batch_count, int aca_batch_count, bool use_precomputed_aca, bool use_precomputed_dense, int dense_offset, int aca_offset, int proc)
+{
+    cublasStatus_t stat;
+    cublasHandle_t handle;
+    stat = cublasCreate(&handle);
+
+
+		// very dirty way to get point count and dimensionality of points
+		int point_count_1,dim;
+		int* point_count_1_d; cudaMalloc((void**)&point_count_1_d, sizeof(int));
+		int* dim_d; cudaMalloc((void**)&dim_d, sizeof(int));
+		linear_algebra_get_point_count_dim<<<1,1>>>(point_count_1_d, dim_d, input_set1);
+		cudaMemcpy(&point_count_1, point_count_1_d, sizeof(int), cudaMemcpyDeviceToHost);
+		cudaMemcpy(&dim, dim_d, sizeof(int), cudaMemcpyDeviceToHost);
+		cudaFree(point_count_1_d); cudaFree(dim_d);
+
+	TIME_ssstart;
+
+	if (use_precomputed_dense)
+	{
+		apply_batched_dense_magma(x, y, &mat_vec_data[dense_offset], dense_work_size[proc], input_set1, input_set2, stat, handle, assem, &magma_queue, dA, true);
+
+	}
+	else
+	{
+		printf("Parallel H matrix execution without precomputing is currently not supported\n");
+		exit(1);	
+	}
+
+	TIME_ssstop("dense blocks");
+
+
+	TIME_ssstart;
+
+
+	if (use_precomputed_aca)
+	{
+		thrust::device_ptr<struct work_item> mat_vec_data_ptr(mat_vec_data);
+		thrust::device_ptr<struct work_item> dense_end_ptr = thrust::partition_point(mat_vec_data_ptr, mat_vec_data_ptr+mat_vec_info->total_count, is_not_WT_ACA());
+	
+		apply_precomputed_batched_aca_magma(x, y, &mat_vec_data[mat_vec_info->dense_count+aca_offset], aca_work_size[proc], input_set1, input_set2, stat, handle, &magma_queue, eta, epsilon, k, U, V);
+	}
+	else
+	{
+		printf("Parallel H matrix execution without precomputing is currently not supported\n");
+		exit(1);
+	}
+
+
+
+	TIME_ssstop("ACA blocks");
+
+    
+	cublasDestroy(handle);
+}
+
 
 
 

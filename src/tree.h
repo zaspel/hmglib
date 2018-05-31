@@ -33,7 +33,7 @@ extern void checkCUDAError(const char* msg);
 #define WT_ACA 1
 #define WT_DENSE 2
 
-#define MAX_POINT_DIMENSION 5
+#define MAX_POINT_DIMENSION 3
 
 struct work_item
 {

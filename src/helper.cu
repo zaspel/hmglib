@@ -139,6 +139,14 @@ void compute_minmax(struct point_set* points_d)
 
 void get_morton_ordering(struct point_set* points_d, struct morton_code* morton_d, uint64_t* order)
 {
+	{
+	size_t free_mem;
+	size_t total_mem;
+	cudaMemGetInfo(&free_mem, &total_mem);
+	printf("Memory free 1: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+	}
+
+
 	struct point_set points_h;
 	cudaMemcpy(&points_h, points_d, sizeof(struct point_set), cudaMemcpyDeviceToHost);
 	checkCUDAError("cudaMemcpy");
@@ -146,10 +154,26 @@ void get_morton_ordering(struct point_set* points_d, struct morton_code* morton_
 	cudaMemcpy(&morton_h, morton_d, sizeof(struct morton_code), cudaMemcpyDeviceToHost);
 	checkCUDAError("cudaMemcpy");
 
+	{
+	size_t free_mem;
+	size_t total_mem;
+	cudaMemGetInfo(&free_mem, &total_mem);
+	printf("Memory free 2: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+	}
+
+
 	int point_count = points_h.size;
 
 	thrust::device_ptr<uint64_t> morton_codes_ptr = thrust::device_pointer_cast(morton_h.code);
 	thrust::device_ptr<uint64_t> order_ptr = thrust::device_pointer_cast(order);
+
+	{
+	size_t free_mem;
+	size_t total_mem;
+	cudaMemGetInfo(&free_mem, &total_mem);
+	printf("Memory free 3: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+	}
+
 
 	// calculate GPU thread configuration	
 	int block_size = 512;
@@ -160,10 +184,26 @@ void get_morton_ordering(struct point_set* points_d, struct morton_code* morton_
 	cudaThreadSynchronize();
 	checkCUDAError("fill_with_indices");
 
+	{
+	size_t free_mem;
+	size_t total_mem;
+	cudaMemGetInfo(&free_mem, &total_mem);
+	printf("Memory free 4: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+	}
+
+
 	// find ordering of points following Z curve
 	TIME_start;
 	thrust::sort_by_key(morton_codes_ptr, morton_codes_ptr + point_count, order_ptr);
 	TIME_stop("sort_by_key");
+
+	{
+	size_t free_mem;
+	size_t total_mem;
+	cudaMemGetInfo(&free_mem, &total_mem);
+	printf("Memory free 5: %d / %d MB\n", (int)(free_mem/1024/1024), (int)(total_mem/1024/1024));
+	}
+
 }
 
 void print_points(struct point_set* points_d)
