@@ -9,6 +9,7 @@ After cloning the repository, go to the source directory and adapt the [makefile
 The following list of libraries should allow you to compile the example codes.
 
 - Nvidia GPU with CUDA support
+- standard development tools (GCC, make, ...)
 - recent version of the CUDA Toolkit
 - recent version of OpenBLAS
 - recent version of MAGMA
