@@ -16,15 +16,11 @@
 * along with hmglib.  If not, see <http://www.gnu.org/licenses/>.
 
 
-hmglib - Simple H matrix library on GPU
+hmglib - Hierarchical Matrices on GPU(s) Library
 
-This library is currently at the beginning of its development. It is ment to become
-a simple H matrix implamentation on GPU.
+This library is currently in an experimental stage. It is ment to become a GPU(s)-based library for hierarchical matrices.
 
-Please find license information in the file LICENSE.
+Please find license information in the file LICENSE and a more detailed description of the project in README.md.
 
-It is currently not suggested to try to use this library, since it is at a very early
-development stage. Support cannot be given at by the author, at this point in time.
-However, feedback is always welcome. Please find the author's email address in the
-file AUTHORS.
+Feedback is always welcome. Please find the author's email address in the file AUTHORS.
 

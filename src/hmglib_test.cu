@@ -26,7 +26,7 @@ int main( int argc, char* argv[])
 {
 	if (argc!=7)
 	{
-		printf("./tree_test <Nx> <Ny> <k> <c_leaf> <exponent of epsilon> <eta>\n");
+		printf("./hmglib_test <Nx> <Ny> <k> <c_leaf> <exponent of epsilon> <eta>\n");
 		return 0;
 	}
 
