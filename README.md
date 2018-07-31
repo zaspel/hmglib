@@ -41,7 +41,7 @@ Here, a matrix of 4096 x 4096 is approximated with adaptive cross approximation 
 
 ### How to go further ?
 
-It is first suggested to read reference [1], found in the literature section of this page. To construct H matrices, for other matrix types than a Gaussian kernel matrix, an interested user should try to derive a new *system assembler* class, providing a method to evaluate a given entry of the (dense) matrix. In the example code from above, the implemented class is called *gaussian_kernel_system_assembler*.
+It is first suggested to read reference [1], found in the literature section of this page. To construct H matrices for other matrix types than a Gaussian kernel matrix, an interested user should try to derive a new *system assembler* class, providing a method to evaluate a given entry of the (dense) matrix. In the example code from above, the implemented class is called *gaussian_kernel_system_assembler*.
 
 ## Current State of the Project
 
